@@ -1,39 +1,40 @@
+# frozen_string_literal: true
+
 require 'yaml'
 
 module RubyEventStore
   module Mappers
-    class Default
-      def initialize(serializer: YAML, events_class_remapping: {})
-        @serializer = serializer
-        @events_class_remapping = events_class_remapping
-      end
+    class Default < PipelineMapper
+      UNSET = Object.new.freeze
 
-      def event_to_serialized_record(domain_event)
-        SerializedRecord.new(
-          event_id:         domain_event.event_id,
-          metadata:   serializer.dump(domain_event.metadata.to_h),
-          data:       serializer.dump(domain_event.data),
-          event_type: domain_event.class.name
-        )
-      end
+      attr_reader :serializer
 
-      def serialized_record_to_event(record)
-        event_type = events_class_remapping.fetch(record.event_type) { record.event_type }
-        Object.const_get(event_type).new(
-          event_id: record.event_id,
-          metadata: symbolize(serializer.load(record.metadata)),
-          data:     serializer.load(record.data)
-        )
-      end
+      def initialize(serializer: UNSET, events_class_remapping: {})
+        case serializer
+        when UNSET
+          @serializer = YAML
+        else
+          warn <<~EOW
+            Passing serializer: to #{self.class} has been deprecated. 
 
-      private
+            Pass it directly to the repository and the scheduler. For example:
 
-      attr_reader :serializer, :events_class_remapping
-
-      def symbolize(hash)
-        hash.each_with_object({}) do |(k, v), memo|
-          memo[k.to_sym] = v
+            Rails.configuration.event_store = RailsEventStore::Client.new(
+              mapper:     RubyEventStore::Mappers::Default.new,
+              repository: RailsEventStoreActiveRecord::EventRepository.new(serializer: YAML),
+              dispatcher: RubyEventStore::ComposedDispatcher.new(
+                RubyEventStore::ImmediateAsyncDispatcher.new(scheduler: ActiveJobScheduler.new(serializer: YAML),
+                RubyEventStore::Dispatcher.new
+              )
+            )
+          EOW
+          @serializer = serializer
         end
+
+        super(Pipeline.new(
+          Transformation::EventClassRemapper.new(events_class_remapping),
+          Transformation::SymbolizeMetadataKeys.new,
+        ))
       end
     end
   end

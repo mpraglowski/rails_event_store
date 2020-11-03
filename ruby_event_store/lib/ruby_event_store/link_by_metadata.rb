@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module RubyEventStore
   class LinkByMetadata
 
@@ -11,7 +13,7 @@ module RubyEventStore
       return unless event.metadata.has_key?(@key)
 
       @event_store.link(
-        [event.message_id],
+        [event.event_id],
         stream_name: "#{@prefix}#{event.metadata.fetch(@key)}"
       )
     end
@@ -46,8 +48,8 @@ module RubyEventStore
 
     def call(event)
       @event_store.link(
-        [event.message_id],
-        stream_name: "#{@prefix}#{event.type}"
+        [event.event_id],
+        stream_name: "#{@prefix}#{event.event_type}"
       )
     end
   end

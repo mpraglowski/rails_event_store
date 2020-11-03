@@ -2,7 +2,7 @@ require 'spec_helper'
 require 'time'
 
 module RubyEventStore
-  RSpec.describe "Client#notify_subscribers" do
+  RSpec.describe Client do
     Test1DomainEvent = Class.new(RubyEventStore::Event)
     Test2DomainEvent = Class.new(RubyEventStore::Event)
     Test3DomainEvent = Class.new(RubyEventStore::Event)
@@ -33,23 +33,12 @@ module RubyEventStore
         true
       end
 
-      def call(subscriber, event, serialized_event)
-        @dispatched << {subscriber: subscriber, event: event, serialized_event: serialized_event}
+      def call(subscriber, event, record)
+        @dispatched << {subscriber: subscriber, event: event, record: record}
       end
     end
 
-    class TestMapper
-      def event_to_serialized_record(domain_event)
-        SerializedRecord.new(
-          event_id:   domain_event.event_id,
-          metadata:   domain_event.metadata.to_s,
-          data:       domain_event.data.to_s,
-          event_type: domain_event.class.name
-        )
-      end
-    end
-
-    subject(:client) { RubyEventStore::Client.new(repository: InMemoryRepository.new) }
+    subject(:client) { RubyEventStore::Client.new(repository: InMemoryRepository.new, mapper: Mappers::NullMapper.new) }
 
     it 'notifies subscribed handlers' do
       handler         = TestHandler.new
@@ -196,17 +185,16 @@ module RubyEventStore
     it 'allows to provide a custom dispatcher' do
       dispatcher        = TestDispatcher.new
       handler           = TestHandler.new
-      event1            = Test1DomainEvent.new
-      serialized_event1 = TestMapper.new.event_to_serialized_record(event1)
+      event1            = TimeEnrichment.with(Test1DomainEvent.new)
 
       client_with_custom_dispatcher = RubyEventStore::Client.new(
         repository: InMemoryRepository.new,
-        mapper: TestMapper.new,
+        mapper: Mappers::NullMapper.new,
         dispatcher: dispatcher,
       )
       client_with_custom_dispatcher.subscribe(handler, to: [Test1DomainEvent])
       client_with_custom_dispatcher.publish(event1)
-      expect(dispatcher.dispatched).to eq([{subscriber: handler, event: event1, serialized_event:serialized_event1}])
+      expect(dispatcher.dispatched).to eq([{subscriber: handler, event: event1, record: Mappers::NullMapper.new.event_to_record(event1)}])
     end
 
     it 'subscribes by type of event which is a String' do

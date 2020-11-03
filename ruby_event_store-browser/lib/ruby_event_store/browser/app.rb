@@ -1,15 +1,21 @@
+# frozen_string_literal: true
+
 require_relative '../browser'
-require 'sinatra'
+require 'sinatra/base'
 
 module RubyEventStore
   module Browser
-    class App < Sinatra::Application
-      def self.for(event_store_locator:, host: nil, path: nil)
+    class App < Sinatra::Base
+      def self.for(event_store_locator:, host: nil, path: nil, api_url: nil, environment: :production, related_streams_query: DEFAULT_RELATED_STREAMS_QUERY)
         self.tap do |app|
           app.settings.instance_exec do
             set :event_store_locator, event_store_locator
+            set :related_streams_query, -> { related_streams_query }
             set :host, host
             set :root_path, path
+            set :api_url, api_url
+            set :environment, environment
+            set :public_folder, "#{__dir__}/../../../public"
           end
         end
       end
@@ -17,56 +23,63 @@ module RubyEventStore
       configure do
         set :host, nil
         set :root_path, nil
+        set :api_url, nil
         set :event_store_locator, -> {}
+        set :related_streams_query, nil
         set :protection, except: :path_traversal
-        set :public_folder, "#{__dir__}/../../../public"
 
         mime_type :json, 'application/vnd.api+json'
       end
-      
-      get '/' do
+
+      get '/api/events/:id' do
+        begin
+          json Event.new(
+            event_store: settings.event_store_locator,
+            params: symbolized_params,
+          )
+        rescue RubyEventStore::EventNotFound
+          404
+        end
+      end
+
+      get '/api/streams/:id' do
+        json GetStream.new(
+          stream_name: params[:id],
+          routing: routing,
+          related_streams_query: settings.related_streams_query,
+        )
+      end
+
+      get '/api/streams/:id/relationships/events' do
+        json GetEventsFromStream.new(
+          event_store: settings.event_store_locator,
+          params: symbolized_params,
+          routing: routing,
+        )
+      end
+
+      get %r{/(events/.*|streams/.*)?} do
         erb %{
           <!DOCTYPE html>
           <html>
             <head>
               <title>RubyEventStore::Browser</title>
+              <link type="text/css" rel="stylesheet" href="<%= path %>/ruby_event_store_browser.css">
             </head>
             <body>
               <script type="text/javascript" src="<%= path %>/ruby_event_store_browser.js"></script>
               <script type="text/javascript">
-                RubyEventStore.Browser.Main.fullscreen({
-                  rootUrl:    "<%= path %>",
-                  eventsUrl:  "<%= path %>/events",
-                  streamsUrl: "<%= path %>/streams",
-                  resVersion: "<%= RubyEventStore::VERSION %>"
+                RubyEventStore.Browser.Elm.Main.init({
+                  flags: {
+                    rootUrl:    "<%= routing.root_url %>",
+                    apiUrl:     "<%= api_url %>",
+                    resVersion: "<%= RubyEventStore::VERSION %>"
+                  }
                 });
               </script>
             </body>
           </html>
-        }, locals: { path: settings.root_path || request.script_name }
-      end
-
-      get '/events/:id' do
-        json Event.new(
-          event_store: settings.event_store_locator,
-          params: symbolized_params
-        )
-      end
-
-      get '/streams/:id' do
-        json Stream.new(
-          event_store: settings.event_store_locator,
-          params: symbolized_params,
-          url_builder: method(:streams_url_for)
-        )
-      end
-
-      get '/streams/:id/:position/:direction/:count' do
-        json Stream.new(
-          event_store: settings.event_store_locator,
-          params: symbolized_params,
-          url_builder: method(:streams_url_for)
-        )
+        }, locals: { path: settings.root_path || request.script_name, api_url: settings.api_url || routing.api_url }
       end
 
       helpers do
@@ -74,14 +87,11 @@ module RubyEventStore
           params.each_with_object({}) { |(k, v), h| v.nil? ? next : h[k.to_sym] = v }
         end
 
-        def streams_url_for(options)
-          host = settings.host      || request.base_url
-          path = settings.root_path || request.script_name
-          base = [host, path].compact.join
-          args = options.values_at(:id, :position, :direction, :count).compact
-          args.map! { |a| Rack::Utils.escape(a) }
-
-          "#{base}/streams/#{args.join('/')}"
+        def routing
+          Routing.new(
+            settings.host || request.base_url,
+            settings.root_path || request.script_name
+          )
         end
 
         def json(data)

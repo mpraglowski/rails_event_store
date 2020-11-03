@@ -1,4 +1,5 @@
 require 'spec_helper'
+require 'action_controller/railtie'
 
 module RailsEventStore
   RSpec.describe Client do
@@ -57,10 +58,49 @@ module RailsEventStore
       expect(received_notifications).to eq(1)
     end
 
+    specify 'wraps mapper into instrumentation' do
+      client = Client.new(
+        repository: InMemoryRepository.new,
+        mapper: RubyEventStore::Mappers::NullMapper.new
+      )
+
+      received_notifications = 0
+      ActiveSupport::Notifications.subscribe("serialize.mapper.rails_event_store") do
+        received_notifications += 1
+      end
+
+      client.publish(TestEvent.new)
+
+      expect(received_notifications).to eq(1)
+    end
+
     specify "#inspect" do
       client    = Client.new
       object_id = client.object_id.to_s(16)
       expect(client.inspect).to eq("#<RailsEventStore::Client:0x#{object_id}>")
+    end
+
+    specify do
+      expect { Client.new }.not_to output.to_stderr
+    end
+
+    specify do
+      expect {
+        Client.new(mapper: RubyEventStore::Mappers::Default.new(serializer: YAML))
+      }.to output(<<~EOS).to_stderr
+        Passing serializer: to RubyEventStore::Mappers::Default has been deprecated. 
+
+        Pass it directly to the repository and the scheduler. For example:
+
+        Rails.configuration.event_store = RailsEventStore::Client.new(
+          mapper:     RubyEventStore::Mappers::Default.new,
+          repository: RailsEventStoreActiveRecord::EventRepository.new(serializer: YAML),
+          dispatcher: RubyEventStore::ComposedDispatcher.new(
+            RubyEventStore::ImmediateAsyncDispatcher.new(scheduler: ActiveJobScheduler.new(serializer: YAML),
+            RubyEventStore::Dispatcher.new
+          )
+        )
+      EOS
     end
   end
 end

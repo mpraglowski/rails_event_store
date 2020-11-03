@@ -4,53 +4,41 @@ REQUIRE      = ruby_event_store/browser
 IGNORE       =
 SUBJECT      ?= RubyEventStore::Browser*
 DATABASE_URL ?= sqlite3::memory:
-JS_BUNDLE    = public/ruby_event_store_browser.js
+BUNDLE       = public/ruby_event_store_browser.js public/ruby_event_store_browser.css public/ruby_event_store_browser.js.map public/ruby_event_store_browser.css.map
 
-install: ## Install gem dependencies
-	@echo "Installing gem dependencies"
-	@bundle install
-	@echo "Installing npm dependencies"
+include ../support/make/install.mk
+include ../support/make/test.mk
+include ../support/make/mutant.mk
+include ../support/make/gem.mk
+include ../support/make/help.mk
+
+install: install-yarn
+
+test: $(BUNDLE) test-yarn
+
+build: $(BUNDLE)
+
+push: $(BUNDLE)
+
+clean: clean-yarn
+
+watch-elm: clean-yarn ## Start dev frontend
+	@cd elm; yarn watch
+
+dev-server: ## Start dev backend prepopulated with events
+	@bundle exec rackup --port 9393 devserver/config.ru
+
+install-yarn:
+	@echo "Installing yarn dependencies"
 	@cd elm; yarn install
 
-remove-lock:
-	@echo "Removing resolved dependency versions"
-	-rm Gemfile.lock
+test-yarn:
+	@cd elm; yarn test
 
-reinstall: remove-lock install ## Removing resolved dependency versions
+clean-yarn:
+	-rm $(BUNDLE)
 
-test: $(JS_BUNDLE) ## Run unit tests
-	@echo "Running unit and integration tests"
-	@cd elm; yarn test; cd -
-	@bundle exec rspec
-
-mutate: test ## Run mutation tests
-	@echo "Running mutation tests"
-	@MUTATING=true DATABASE_URL=$(DATABASE_URL) bundle exec mutant --include lib \
-		$(addprefix --require ,$(REQUIRE)) \
-		$(addprefix --ignore-subject ,$(IGNORE)) \
-		--use rspec "$(SUBJECT)"
-
-$(JS_BUNDLE):
+$(BUNDLE):
 	@echo "Building browser frontend"
+	@-$(if $(CI), ls -alR ~/.elm elm/elm-stuff,)
 	@cd elm; yarn build
-
-build: $(JS_BUNDLE)
-	@echo "Building gem package"
-	@gem build -V $(GEM_NAME).gemspec
-	@mkdir -p pkg/
-	@mv $(GEM_NAME)-$(GEM_VERSION).gem pkg/
-
-push: $(JS_BUNDLE)
-	@echo "Pushing package to RubyGems"
-	@gem push -k dev_arkency pkg/$(GEM_NAME)-$(GEM_VERSION).gem
-
-clean:
-	@echo "Removing previously built package and bundle"
-	-rm pkg/$(GEM_NAME)-$(GEM_VERSION).gem $(JS_BUNDLE)
-
-help:
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
-
-.PHONY: help
-.DEFAULT_GOAL := help
-

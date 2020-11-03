@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module RubyEventStore
-  VERSION = "0.33.0"
+  VERSION = "1.1.1"
 end

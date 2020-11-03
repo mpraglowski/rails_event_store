@@ -1,12 +1,38 @@
 require 'spec_helper'
 require 'ruby_event_store'
 require 'ruby_event_store/spec/event_repository_lint'
-require 'rails_event_store_active_record/event'
 
 module RailsEventStoreActiveRecord
-  RSpec.describe PgLinearizedEventRepository do
-    include SchemaHelper
+  class PgLinearizedEventRepository
+    class SpecHelper < RubyEventStore::EventRepositoryHelper
+      def supports_concurrent_auto?
+        false
+      end
 
+      def supports_binary?
+        false
+      end
+
+      def has_connection_pooling?
+        true
+      end
+
+      def connection_pool_size
+        ActiveRecord::Base.connection.pool.size
+      end
+
+      def cleanup_concurrency_test
+        ActiveRecord::Base.connection_pool.disconnect!
+      end
+    end
+  end
+
+  RSpec.describe PgLinearizedEventRepository do
+    include_examples :event_repository
+    let(:repository) { PgLinearizedEventRepository.new(serializer: YAML) }
+    let(:helper) { PgLinearizedEventRepository::SpecHelper.new }
+
+    include SchemaHelper
     around(:each) do |example|
       begin
         establish_database_connection
@@ -16,18 +42,6 @@ module RailsEventStoreActiveRecord
         drop_database
       end
     end
-
-    let(:test_race_conditions_auto)  { false }
-    let(:test_race_conditions_any)   { true }
-    let(:test_expected_version_auto) { true }
-    let(:test_link_events_to_stream) { true }
-    let(:test_binary)                { false }
-    let(:test_change)                { true }
-    let(:mapper)                     { RubyEventStore::Mappers::NullMapper.new }
-    let(:repository)                 { PgLinearizedEventRepository.new }
-    let(:specification)              { RubyEventStore::Specification.new(repository, mapper) }
-
-    it_behaves_like :event_repository, PgLinearizedEventRepository
 
     specify "linearized by lock" do
       begin
@@ -83,28 +97,20 @@ module RailsEventStoreActiveRecord
       end
     end
 
-    def cleanup_concurrency_test
-      ActiveRecord::Base.connection_pool.disconnect!
-    end
-
-    def verify_conncurency_assumptions
-      expect(ActiveRecord::Base.connection.pool.size).to eq(5)
-    end
-
     def additional_limited_concurrency_for_auto_check
-      positions = RailsEventStoreActiveRecord::EventInStream.
-        where(stream: "stream").
-        order("position ASC").
-        map(&:position)
+      positions = RailsEventStoreActiveRecord::EventInStream
+        .where(stream: "stream")
+        .order("position ASC")
+        .map(&:position)
       expect(positions).to eq((0..positions.size-1).to_a)
     end
 
     private
 
     def execute(sql)
-      ActiveRecord::Base.
-        connection.
-        execute(sql).each.to_a
+      ActiveRecord::Base
+        .connection
+        .execute(sql).each.to_a
     end
 
     def append_an_event_to_repo

@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module RubyEventStore
   class InstrumentedRepository
     def initialize(repository, instrumentation)
@@ -34,6 +36,12 @@ module RubyEventStore
     def read(specification)
       instrumentation.instrument("read.repository.rails_event_store", specification: specification) do
         repository.read(specification)
+      end
+    end
+
+    def count(specification)
+      instrumentation.instrument("count.repository.rails_event_store", specification: specification) do
+        repository.count(specification)
       end
     end
 

@@ -1,22 +1,43 @@
-require 'ostruct'
-require 'thread'
+# frozen_string_literal: true
 
+require 'ostruct'
 module RubyEventStore
   class InMemoryRepository
 
-    def initialize
-      @streams = Hash.new
-      @mutex = Mutex.new
-      @global = Array.new
+    def initialize(serializer: NULL)
+      @serializer = serializer
+      @streams = Hash.new { |h, k| h[k] = Array.new }
+      @mutex   = Mutex.new
+      @storage = Hash.new
     end
 
-    def append_to_stream(events, stream, expected_version)
-      add_to_stream(events, expected_version, stream, true)
+    def append_to_stream(records, stream, expected_version)
+      serialized_records = Array(records).map{ |record| record.serialize(serializer) }
+
+      with_synchronize(expected_version, stream) do |resolved_version|
+        raise WrongExpectedEventVersion unless last_stream_version(stream).equal?(resolved_version)
+
+        serialized_records.each do |serialized_record|
+          raise EventDuplicatedInStream if has_event?(serialized_record.event_id)
+          storage[serialized_record.event_id] = serialized_record
+          streams[stream.name] << serialized_record.event_id
+        end
+      end
+      self
     end
 
     def link_to_stream(event_ids, stream, expected_version)
-      events = normalize_to_array(event_ids).map {|eid| read_event(eid)}
-      add_to_stream(events, expected_version, stream, nil)
+      serialized_records = Array(event_ids).map { |id| read_event(id) }
+
+      with_synchronize(expected_version, stream) do |resolved_version|
+        raise WrongExpectedEventVersion unless last_stream_version(stream).equal?(resolved_version)
+
+        serialized_records.each do |serialized_record|
+          raise EventDuplicatedInStream if has_event_in_stream?(serialized_record.event_id, stream.name)
+          streams[stream.name] << serialized_record.event_id
+        end
+      end
+      self
     end
 
     def delete_stream(stream)
@@ -24,73 +45,112 @@ module RubyEventStore
     end
 
     def has_event?(event_id)
-       global.any?{ |item| item.event_id.eql?(event_id) }
+      storage.has_key?(event_id)
     end
 
     def last_stream_event(stream)
-      stream_of(stream.name).last
+      last_id = event_ids_of_stream(stream).last
+      storage.fetch(last_id).deserialize(serializer) if last_id
     end
 
     def read(spec)
-      events = spec.stream.global? ? global : stream_of(spec.stream.name)
-      events = events.select{|e| spec.with_ids.any?{|x| x.eql?(e.event_id)}} if spec.with_ids?
-      events = events.select{|e| spec.with_types.any?{|x| x.eql?(e.event_type)}} if spec.with_types?
-      events = events.reverse if spec.backward?
-      events = events.drop(index_of(events, spec.start) + 1) unless spec.head?
-      events = events[0...spec.limit] if spec.limit?
+      serialized_records = read_scope(spec)
       if spec.batched?
-        batch_reader = ->(offset, limit) { events.drop(offset).take(limit) }
-        BatchEnumerator.new(spec.batch_size, events.size, batch_reader).each
+        batch_reader = ->(offset, limit) do
+          serialized_records
+            .drop(offset)
+            .take(limit)
+            .map{|serialized_record| serialized_record.deserialize(serializer) }
+        end
+        BatchEnumerator.new(spec.batch_size, serialized_records.size, batch_reader).each
       elsif spec.first?
-        events.first
+        serialized_records.first&.deserialize(serializer)
       elsif spec.last?
-        events.last
+        serialized_records.last&.deserialize(serializer)
       else
-        events.each
-      end
-    end
-
-    def update_messages(messages)
-      messages.each do |new_msg|
-        location = global.index{|m| new_msg.event_id.eql?(m.event_id)} or raise EventNotFound.new(new_msg.event_id)
-        global[location] = new_msg
-        streams.values.each do |str|
-          location = str.index{|m| new_msg.event_id.eql?(m.event_id)}
-          str[location] = new_msg if location
+        Enumerator.new do |y|
+          serialized_records.each do |serialized_record|
+            y << serialized_record.deserialize(serializer)
+          end
         end
       end
     end
 
+    def count(spec)
+      read_scope(spec).count
+    end
+
+    def update_messages(records)
+      records.each do |record|
+        read_event(record.event_id)
+        serialized_record =
+          Record.new(
+            event_id:   record.event_id,
+            event_type: record.event_type,
+            data:       record.data,
+            metadata:   record.metadata,
+            timestamp:  Time.iso8601(storage.fetch(record.event_id).timestamp),
+            valid_at:   record.valid_at,
+          ).serialize(serializer)
+        storage[record.event_id] = serialized_record
+      end
+    end
+
     def streams_of(event_id)
-      streams.select do |_, stream_events|
-        stream_events.any? { |event| event.event_id.eql?(event_id) }
-      end.map { |name, _| Stream.new(name) }
+      streams
+        .select { |name,| has_event_in_stream?(event_id, name) }
+        .map    { |name,| Stream.new(name) }
     end
 
     private
+    def read_scope(spec)
+      serialized_records = serialized_records_of_stream(spec.stream)
+      serialized_records = ordered(serialized_records, spec)
+      serialized_records = serialized_records.select{|e| spec.with_ids.any?{|x| x.eql?(e.event_id)}} if spec.with_ids?
+      serialized_records = serialized_records.select{|e| spec.with_types.any?{|x| x.eql?(e.event_type)}} if spec.with_types?
+      serialized_records = serialized_records.reverse if spec.backward?
+      serialized_records = serialized_records.drop(index_of(serialized_records, spec.start) + 1) if spec.start
+      serialized_records = serialized_records.take(index_of(serialized_records, spec.stop)) if spec.stop
+      serialized_records = serialized_records.take(spec.limit) if spec.limit?
+      serialized_records = serialized_records.select { |sr| Time.iso8601(sr.timestamp) < spec.older_than } if spec.older_than
+      serialized_records = serialized_records.select { |sr| Time.iso8601(sr.timestamp) <= spec.older_than_or_equal } if spec.older_than_or_equal
+      serialized_records = serialized_records.select { |sr| Time.iso8601(sr.timestamp) > spec.newer_than } if spec.newer_than
+      serialized_records = serialized_records.select { |sr| Time.iso8601(sr.timestamp) >= spec.newer_than_or_equal } if spec.newer_than_or_equal
+      serialized_records
+    end
 
     def read_event(event_id)
-      global.find {|e| event_id.eql?(e.event_id)} or raise EventNotFound.new(event_id)
+      storage.fetch(event_id) { raise EventNotFound.new(event_id) }
     end
 
-    def stream_of(name)
-      streams.fetch(name, Array.new)
+    def event_ids_of_stream(stream)
+      streams.fetch(stream.name, Array.new)
     end
 
-    def normalize_to_array(events)
-      return *events
+    def serialized_records_of_stream(stream)
+      stream.global? ? storage.values : storage.fetch_values(*event_ids_of_stream(stream))
     end
 
-    def add_to_stream(events, expected_version, stream, include_global)
-      events = normalize_to_array(events)
-      append_with_synchronize(events, expected_version, stream, include_global)
+    def ordered(serialized_records, spec)
+      case spec.time_sort_by
+      when :as_at
+        serialized_records.sort_by(&:timestamp)
+      when :as_of
+        serialized_records.sort_by(&:valid_at)
+      else
+        serialized_records
+      end
+    end
+
+    def add_to_stream(serialized_records, expected_version, stream, include_global)
+      append_with_synchronize(serialized_records, expected_version, stream, include_global)
     end
 
     def last_stream_version(stream)
-      stream_of(stream.name).size - 1
+      event_ids_of_stream(stream).size - 1
     end
 
-    def append_with_synchronize(events, expected_version, stream, include_global)
+    def with_synchronize(expected_version, stream, &block)
       resolved_version = expected_version.resolve_for(stream, method(:last_stream_version))
 
       # expected_version :auto assumes external lock is used
@@ -103,30 +163,18 @@ module RubyEventStore
       Thread.pass
       mutex.synchronize do
         resolved_version = last_stream_version(stream) if expected_version.any?
-        append(events, resolved_version, stream, include_global)
+        block.call(resolved_version)
       end
     end
 
-    def append(events, resolved_version, stream, include_global)
-      stream_events = stream_of(stream.name)
-      raise WrongExpectedEventVersion unless last_stream_version(stream).equal?(resolved_version)
-
-      events.each do |event|
-        raise EventDuplicatedInStream if stream_events.any? {|ev| ev.event_id.eql?(event.event_id)}
-        if include_global
-          raise EventDuplicatedInStream if has_event?(event.event_id)
-          global.push(event)
-        end
-        stream_events.push(event)
-      end
-      streams[stream.name] = stream_events
-      self
+    def has_event_in_stream?(event_id, stream_name)
+      streams.fetch(stream_name, Array.new).any? { |id| id.eql?(event_id) }
     end
 
     def index_of(source, event_id)
       source.index {|item| item.event_id.eql?(event_id)}
     end
 
-    attr_reader :streams, :mutex, :global
+    attr_reader :streams, :mutex, :storage, :serializer
   end
 end

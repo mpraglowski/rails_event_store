@@ -1,3 +1,4 @@
+# frozen_string_literal: true
 
 module RubyEventStore
   class Projection
@@ -14,8 +15,8 @@ module RubyEventStore
 
     def initialize(streams: [])
       @streams  = streams
-      @handlers = Hash.new { ->(_, _) {} }
-      @init     = -> { Hash.new }
+      @handlers = {}
+      @init     = -> { {} }
     end
 
     attr_reader :streams, :handlers
@@ -27,7 +28,7 @@ module RubyEventStore
 
     def when(events, handler)
       Array(events).each do |event|
-        @handlers[event] = handler
+        handlers[event.to_s] = handler
       end
 
       self
@@ -42,14 +43,15 @@ module RubyEventStore
     end
 
     def call(event)
-      handlers.fetch(event.class).(current_state, event)
+      handlers.fetch(event.event_type).(current_state, event)
     end
 
     def handled_events
       handlers.keys
     end
 
-    def run(event_store, start: :head, count: PAGE_SIZE)
+    def run(event_store, start: nil, count: PAGE_SIZE)
+      return initial_state if handled_events.empty?
       if streams.any?
         reduce_from_streams(event_store, start, count)
       else
@@ -60,7 +62,7 @@ module RubyEventStore
     private
 
     def valid_starting_point?(start)
-      return true if start === :head
+      return true unless start
       if streams.any?
         (start.instance_of?(Array) && start.size === streams.size)
       else
@@ -69,23 +71,31 @@ module RubyEventStore
     end
 
     def reduce_from_streams(event_store, start, count)
-      raise ArgumentError.new('Start must be an array with event ids or :head') unless valid_starting_point?(start)
+      raise ArgumentError.new('Start must be an array with event ids') unless valid_starting_point?(start)
       streams.zip(start_events(start)).reduce(initial_state) do |state, (stream_name, start_event_id)|
-        event_store.read.in_batches(count).stream(stream_name).from(start_event_id).each.reduce(state, &method(:transition))
+        read_scope(event_store, stream_name, count, start_event_id).reduce(state, &method(:transition))
       end
     end
 
     def reduce_from_all_streams(event_store, start, count)
-      raise ArgumentError.new('Start must be valid event id or :head') unless valid_starting_point?(start)
-      event_store.read.in_batches(count).from(start).each.reduce(initial_state, &method(:transition))
+      raise ArgumentError.new('Start must be valid event id') unless valid_starting_point?(start)
+      read_scope(event_store, nil, count, start).reduce(initial_state, &method(:transition))
+    end
+
+    def read_scope(event_store, stream, count, start)
+      scope = event_store.read.in_batches(count)
+      scope = scope.of_type(handled_events)
+      scope = scope.stream(stream) if stream
+      scope = scope.from(start) if start
+      scope
     end
 
     def start_events(start)
-      start === :head ? Array.new(streams.size) { :head } : start
+      start ? start : Array.new
     end
 
     def transition(state, event)
-      handlers[event.class].(state, event)
+      handlers.fetch(event.event_type).call(state, event)
       state
     end
   end

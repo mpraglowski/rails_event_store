@@ -1,82 +1,51 @@
-module Main exposing (..)
+module Main exposing (main)
 
-import Html exposing (..)
-import Html.Attributes exposing (placeholder, disabled, href, class)
-import Html.Events exposing (onClick)
-import Http
-import Json.Decode exposing (Decoder, Value, field, list, string, at, value, maybe, oneOf)
-import Json.Decode.Pipeline exposing (decode, required, requiredAt, optional)
-import Json.Encode exposing (encode)
-import Navigation
-import UrlParser exposing ((</>))
-import OpenedEventUI
+import Browser
+import Browser.Navigation
+import Flags exposing (Flags, RawFlags, buildFlags)
+import Html exposing (Html)
+import Layout
+import Maybe exposing (andThen)
+import Page.ShowEvent
+import Page.ShowStream
+import Route
+import Url
+import Url.Parser exposing ((</>))
+import WrappedModel exposing (..)
 
 
-main : Program Flags Model Msg
+main : Program RawFlags Model Msg
 main =
-    Navigation.programWithFlags ChangeUrl
-        { init = model
+    Browser.application
+        { init = buildModel
         , view = view
         , update = update
         , subscriptions = subscriptions
+        , onUrlChange = ChangeUrl
+        , onUrlRequest = ClickedLink
         }
 
 
 type alias Model =
-    { events : PaginatedList Event
-    , event : Maybe OpenedEventUI.Model
-    , page : Page
-    , flags : Flags
+    { page : Page
+    , flags : Maybe Flags
+    , key : Browser.Navigation.Key
+    , layout : Layout.Model
     }
 
 
 type Msg
-    = GetEvents (Result Http.Error (PaginatedList Event))
-    | GetEvent (Result Http.Error Event)
-    | ChangeUrl Navigation.Location
-    | GoToPage PaginationLink
-    | OpenedEventUIChanged OpenedEventUI.Msg
+    = ChangeUrl Url.Url
+    | ClickedLink Browser.UrlRequest
+    | GotLayoutMsg Layout.Msg
+    | GotShowEventMsg Page.ShowEvent.Msg
+    | GotShowStreamMsg Page.ShowStream.Msg
 
 
 type Page
-    = BrowseEvents String
-    | ShowEvent String
-    | NotFound
-
-
-type alias Event =
-    { eventType : String
-    , eventId : String
-    , createdAt : String
-    , rawData : String
-    , rawMetadata : String
-    }
-
-
-type alias PaginationLink =
-    String
-
-
-type alias PaginationLinks =
-    { next : Maybe PaginationLink
-    , prev : Maybe PaginationLink
-    , first : Maybe PaginationLink
-    , last : Maybe PaginationLink
-    }
-
-
-type alias PaginatedList a =
-    { events : List a
-    , links : PaginationLinks
-    }
-
-
-type alias Flags =
-    { rootUrl : String
-    , streamsUrl : String
-    , eventsUrl : String
-    , resVersion : String
-    }
+    = NotFound
+    | ShowEvent Page.ShowEvent.Model
+    | ShowStream Page.ShowStream.Model
 
 
 subscriptions : Model -> Sub Msg
@@ -84,303 +53,153 @@ subscriptions model =
     Sub.none
 
 
-model : Flags -> Navigation.Location -> ( Model, Cmd Msg )
-model flags location =
+buildModel : RawFlags -> Url.Url -> Browser.Navigation.Key -> ( Model, Cmd Msg )
+buildModel rawFlags location key =
     let
-        initLinks =
-            { prev = Nothing
-            , next = Nothing
-            , first = Nothing
-            , last = Nothing
-            }
-
         initModel =
-            { events = PaginatedList [] initLinks
-            , page = NotFound
-            , event = Nothing
-            , flags = flags
+            { page = NotFound
+            , flags = buildFlags rawFlags
+            , key = key
+            , layout = Layout.buildModel
             }
     in
-        urlUpdate initModel location
+    urlUpdate initModel location
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
-    case msg of
-        GetEvents (Ok result) ->
-            ( { model | events = result }, Cmd.none )
-
-        GetEvents (Err msg) ->
-            ( model, Cmd.none )
-
-        GetEvent (Ok result) ->
-            ( { model | event = Just (OpenedEventUI.initModel result) }, Cmd.none )
-
-        GetEvent (Err msg) ->
-            ( model, Cmd.none )
-
-        ChangeUrl location ->
+    case ( msg, model.page ) of
+        ( ChangeUrl location, _ ) ->
             urlUpdate model location
 
-        GoToPage paginationLink ->
-            ( model, getEvents paginationLink )
+        ( ClickedLink urlRequest, _ ) ->
+            case urlRequest of
+                Browser.Internal url ->
+                    ( model
+                    , Browser.Navigation.pushUrl model.key (Url.toString url)
+                    )
 
-        OpenedEventUIChanged openedEventUIMsg ->
-            case model.event of
-                Just openedEvent ->
-                    let
-                        ( newModel, cmd ) =
-                            OpenedEventUI.update openedEventUIMsg openedEvent
-                    in
-                        ( { model | event = Just newModel }, Cmd.none )
+                Browser.External url ->
+                    ( model
+                    , Browser.Navigation.load url
+                    )
 
+        ( GotShowStreamMsg showStreamUIMsg, ShowStream showStreamModel ) ->
+            Page.ShowStream.update showStreamUIMsg showStreamModel
+                |> updateWith ShowStream GotShowStreamMsg model
+
+        ( GotShowEventMsg openedEventUIMsg, ShowEvent showEventModel ) ->
+            Page.ShowEvent.update openedEventUIMsg showEventModel
+                |> updateWith ShowEvent GotShowEventMsg model
+
+        ( GotLayoutMsg layoutMsg, _ ) ->
+            case model.flags of
                 Nothing ->
                     ( model, Cmd.none )
 
+                Just flags ->
+                    let
+                        ( layoutModel, layoutCmd ) =
+                            Layout.update layoutMsg (wrapModel model model.layout flags)
+                    in
+                    ( { model | layout = layoutModel }, Cmd.map GotLayoutMsg layoutCmd )
 
-buildUrl : String -> String -> String
-buildUrl baseUrl id =
-    baseUrl ++ "/" ++ (Http.encodeUri id)
+        ( _, _ ) ->
+            ( model, Cmd.none )
 
 
-urlUpdate : Model -> Navigation.Location -> ( Model, Cmd Msg )
+updateWith : (subModel -> Page) -> (subMsg -> Msg) -> Model -> ( subModel, Cmd subMsg ) -> ( Model, Cmd Msg )
+updateWith toPageModel toMsg model ( subModel, subCmd ) =
+    ( { model | page = toPageModel subModel }
+    , Cmd.map toMsg subCmd
+    )
+
+
+urlUpdate : Model -> Url.Url -> ( Model, Cmd Msg )
 urlUpdate model location =
-    let
-        decodeLocation location =
-            UrlParser.parseHash routeParser location
-    in
-        case decodeLocation location of
-            Just (BrowseEvents encodedStreamId) ->
-                case (Http.decodeUri encodedStreamId) of
-                    Just streamId ->
-                        ( { model | page = (BrowseEvents streamId) }, getEvents (buildUrl model.flags.streamsUrl streamId) )
+    case model.flags of
+        Nothing ->
+            ( model, Cmd.none )
 
-                    Nothing ->
-                        ( { model | page = NotFound }, Cmd.none )
+        Just flags ->
+            case Route.decodeLocation flags.rootUrl location of
+                Just (Route.BrowseEvents encodedStreamId) ->
+                    case Url.percentDecode encodedStreamId of
+                        Just streamId ->
+                            ( { model | page = ShowStream (Page.ShowStream.initModel flags streamId) }
+                            , Cmd.map GotShowStreamMsg (Page.ShowStream.initCmd flags streamId)
+                            )
 
-            Just (ShowEvent encodedEventId) ->
-                case (Http.decodeUri encodedEventId) of
-                    Just eventId ->
-                        ( { model | page = (ShowEvent eventId) }, getEvent (buildUrl model.flags.eventsUrl eventId) )
+                        Nothing ->
+                            ( { model | page = NotFound }, Cmd.none )
 
-                    Nothing ->
-                        ( { model | page = NotFound }, Cmd.none )
+                Just (Route.ShowEvent encodedEventId) ->
+                    case Url.percentDecode encodedEventId of
+                        Just eventId ->
+                            ( { model | page = ShowEvent (Page.ShowEvent.initModel flags eventId) }
+                            , Cmd.map GotShowEventMsg (Page.ShowEvent.initCmd flags eventId)
+                            )
 
-            Just page ->
-                ( { model | page = page }, Cmd.none )
+                        Nothing ->
+                            ( { model | page = NotFound }, Cmd.none )
 
-            Nothing ->
-                ( { model | page = NotFound }, Cmd.none )
-
-
-routeParser : UrlParser.Parser (Page -> a) a
-routeParser =
-    UrlParser.oneOf
-        [ UrlParser.map (BrowseEvents "all") UrlParser.top
-        , UrlParser.map BrowseEvents (UrlParser.s "streams" </> UrlParser.string)
-        , UrlParser.map ShowEvent (UrlParser.s "events" </> UrlParser.string)
-        ]
+                Nothing ->
+                    ( { model | page = NotFound }, Cmd.none )
 
 
-view : Model -> Html Msg
+view : Model -> Browser.Document Msg
 view model =
-    div [ class "frame" ]
-        [ header [ class "frame__header" ] [ browserNavigation model ]
-        , main_ [ class "frame__body" ] [ browserBody model ]
-        , footer [ class "frame__footer" ] [ browserFooter model ]
-        ]
+    case model.flags of
+        Nothing ->
+            { title = fullTitle Nothing
+            , body = [ Layout.viewIncorrectConfig ]
+            }
+
+        Just flags ->
+            let
+                ( maybePageTitle, pageContent ) =
+                    viewPage model.page
+            in
+            { body = [ Layout.view GotLayoutMsg (wrapModel model model.layout flags) pageContent ]
+            , title = fullTitle maybePageTitle
+            }
 
 
-browserNavigation : Model -> Html Msg
-browserNavigation model =
-    nav [ class "navigation" ]
-        [ div [ class "navigation__brand" ]
-            [ a [ href model.flags.rootUrl, class "navigation__logo" ] [ text "Ruby Event Store" ]
-            ]
-        , div [ class "navigation__links" ]
-            [ a [ href model.flags.rootUrl, class "navigation__link" ] [ text "Stream Browser" ]
-            ]
-        ]
+fullTitle : Maybe String -> String
+fullTitle maybePageTitle =
+    case maybePageTitle of
+        Just pageTitle ->
+            "RubyEventStore::Browser - " ++ pageTitle
+
+        Nothing ->
+            "RubyEventStore::Browser"
 
 
-browserFooter : Model -> Html Msg
-browserFooter model =
-    footer [ class "footer" ]
-        [ div [ class "footer__links" ]
-            [ text ("RubyEventStore v" ++ model.flags.resVersion)
-            , a [ href "https://railseventstore.org/docs/install/", class "footer__link" ] [ text "Documentation" ]
-            , a [ href "https://railseventstore.org/support/", class "footer__link" ] [ text "Support" ]
-            ]
-        ]
+viewPage : Page -> ( Maybe String, Html Msg )
+viewPage page =
+    case page of
+        ShowStream showStreamUIModel ->
+            viewOnePage GotShowStreamMsg Page.ShowStream.view showStreamUIModel
 
-
-browserBody : Model -> Html Msg
-browserBody model =
-    case model.page of
-        BrowseEvents streamName ->
-            browseEvents ("Events in " ++ streamName) model.events
-
-        ShowEvent eventId ->
-            showEvent model.event
+        ShowEvent openedEventUIModel ->
+            viewOnePage GotShowEventMsg Page.ShowEvent.view openedEventUIModel
 
         NotFound ->
-            h1 [] [ text "404" ]
+            ( Nothing, Layout.viewNotFound )
 
 
-showEvent : Maybe OpenedEventUI.Model -> Html Msg
-showEvent event =
-    case event of
-        Just event ->
-            Html.map (\msg -> OpenedEventUIChanged msg) (OpenedEventUI.showEvent event)
-
-        Nothing ->
-            div [ class "event" ] []
-
-
-browseEvents : String -> PaginatedList Event -> Html Msg
-browseEvents title { links, events } =
-    div [ class "browser" ]
-        [ h1 [ class "browser__title" ] [ text title ]
-        , div [ class "browser__pagination" ] [ displayPagination links ]
-        , div [ class "browser__results" ] [ renderResults events ]
-        ]
+viewOnePage : (pageMsg -> Msg) -> (model -> ( String, Html pageMsg )) -> model -> ( Maybe String, Html Msg )
+viewOnePage pageMsgBuilder pageViewFunction pageModel =
+    let
+        ( pageTitle, pageContent ) =
+            pageViewFunction pageModel
+    in
+    ( Just pageTitle, Html.map pageMsgBuilder pageContent )
 
 
-displayPagination : PaginationLinks -> Html Msg
-displayPagination { first, last, next, prev } =
-    ul [ class "pagination" ]
-        [ paginationItem firstPageButton first
-        , paginationItem lastPageButton last
-        , paginationItem nextPageButton next
-        , paginationItem prevPageButton prev
-        ]
-
-
-paginationItem : (PaginationLink -> Html Msg) -> Maybe PaginationLink -> Html Msg
-paginationItem button link =
-    case link of
-        Just url ->
-            li [] [ button url ]
-
-        Nothing ->
-            li [] []
-
-
-nextPageButton : PaginationLink -> Html Msg
-nextPageButton url =
-    button
-        [ href url
-        , onClick (GoToPage url)
-        , class "pagination__page pagination__page--next"
-        ]
-        [ text "next" ]
-
-
-prevPageButton : PaginationLink -> Html Msg
-prevPageButton url =
-    button
-        [ href url
-        , onClick (GoToPage url)
-        , class "pagination__page pagination__page--prev"
-        ]
-        [ text "previous" ]
-
-
-lastPageButton : PaginationLink -> Html Msg
-lastPageButton url =
-    button
-        [ href url
-        , onClick (GoToPage url)
-        , class "pagination__page pagination__page--last"
-        ]
-        [ text "last" ]
-
-
-firstPageButton : PaginationLink -> Html Msg
-firstPageButton url =
-    button
-        [ href url
-        , onClick (GoToPage url)
-        , class "pagination__page pagination__page--first"
-        ]
-        [ text "first" ]
-
-
-renderResults : List Event -> Html Msg
-renderResults events =
-    case events of
-        [] ->
-            p [ class "results__empty" ] [ text "No items" ]
-
-        _ ->
-            table []
-                [ thead []
-                    [ tr []
-                        [ th [] [ text "Event name" ]
-                        , th [] [ text "Event id" ]
-                        , th [ class "u-align-right" ] [ text "Created at" ]
-                        ]
-                    ]
-                , tbody [] (List.map itemRow events)
-                ]
-
-
-itemRow : Event -> Html Msg
-itemRow { eventType, createdAt, eventId } =
-    tr []
-        [ td []
-            [ a
-                [ class "results__link"
-                , href (buildUrl "#events" eventId)
-                ]
-                [ text eventType ]
-            ]
-        , td [] [ text eventId ]
-        , td [ class "u-align-right" ]
-            [ text createdAt
-            ]
-        ]
-
-
-getEvent : String -> Cmd Msg
-getEvent url =
-    Http.get url eventDecoder
-        |> Http.send GetEvent
-
-
-getEvents : String -> Cmd Msg
-getEvents url =
-    Http.get url eventsDecoder
-        |> Http.send GetEvents
-
-
-eventsDecoder : Decoder (PaginatedList Event)
-eventsDecoder =
-    decode PaginatedList
-        |> required "data" (list eventDecoder_)
-        |> required "links" linksDecoder
-
-
-linksDecoder : Decoder PaginationLinks
-linksDecoder =
-    decode PaginationLinks
-        |> optional "next" (maybe string) Nothing
-        |> optional "prev" (maybe string) Nothing
-        |> optional "first" (maybe string) Nothing
-        |> optional "last" (maybe string) Nothing
-
-
-eventDecoder : Decoder Event
-eventDecoder =
-    eventDecoder_
-        |> field "data"
-
-
-eventDecoder_ : Decoder Event
-eventDecoder_ =
-    decode Event
-        |> requiredAt [ "attributes", "event_type" ] string
-        |> requiredAt [ "id" ] string
-        |> requiredAt [ "attributes", "metadata", "timestamp" ] string
-        |> requiredAt [ "attributes", "data" ] (value |> Json.Decode.map (encode 2))
-        |> requiredAt [ "attributes", "metadata" ] (value |> Json.Decode.map (encode 2))
+wrapModel : Model -> a -> Flags -> WrappedModel a
+wrapModel globalModel internalModel flags =
+    { internal = internalModel
+    , key = globalModel.key
+    , flags = flags
+    }

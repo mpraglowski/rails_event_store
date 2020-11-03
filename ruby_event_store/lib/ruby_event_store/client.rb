@@ -1,18 +1,23 @@
+# frozen_string_literal: true
+
 require 'concurrent'
 
 module RubyEventStore
   class Client
-
     def initialize(repository:,
                    mapper: Mappers::Default.new,
-                   subscriptions: PubSub::Subscriptions.new,
-                   dispatcher: PubSub::Dispatcher.new,
-                   clock: ->{ Time.now.utc })
+                   subscriptions: Subscriptions.new,
+                   dispatcher: Dispatcher.new,
+                   clock: default_clock,
+                   correlation_id_generator: default_correlation_id_generator)
+
+
       @repository     = repository
-      @mapper         = mapper
-      @broker         = PubSub::Broker.new(subscriptions: subscriptions, dispatcher: dispatcher)
+      @mapper         = Mappers::DeprecatedWrapper.new(mapper)
+      @broker         = Broker.new(subscriptions: subscriptions, dispatcher: dispatcher)
       @clock          = clock
       @metadata       = Concurrent::ThreadLocalVar.new
+      @correlation_id_generator = correlation_id_generator
     end
 
 
@@ -24,14 +29,14 @@ module RubyEventStore
     # @return [self]
     def publish(events, stream_name: GLOBAL_STREAM, expected_version: :any)
       enriched_events = enrich_events_metadata(events)
-      serialized_events = serialize_events(enriched_events)
-      append_to_stream_serialized_events(serialized_events, stream_name: stream_name, expected_version: expected_version)
-      enriched_events.zip(serialized_events) do |event, serialized_event|
+      records         = transform(enriched_events)
+      append_records_to_stream(records, stream_name: stream_name, expected_version: expected_version)
+      enriched_events.zip(records) do |event, record|
         with_metadata(
-          correlation_id: event.metadata[:correlation_id] || event.event_id,
+          correlation_id: event.metadata.fetch(:correlation_id),
           causation_id:   event.event_id,
         ) do
-          broker.(event, serialized_event)
+          broker.(event, record)
         end
       end
       self
@@ -42,8 +47,11 @@ module RubyEventStore
     # @param (see #publish)
     # @return [self]
     def append(events, stream_name: GLOBAL_STREAM, expected_version: :any)
-      serialized_events = serialize_events(enrich_events_metadata(events))
-      append_to_stream_serialized_events(serialized_events, stream_name: stream_name, expected_version: expected_version)
+      append_records_to_stream(
+        transform(enrich_events_metadata(events)),
+        stream_name: stream_name,
+        expected_version: expected_version
+      )
       self
     end
 
@@ -68,16 +76,6 @@ module RubyEventStore
     def delete_stream(stream_name)
       repository.delete_stream(Stream.new(stream_name))
       self
-    end
-
-    # @deprecated Use {#read.event!(event_id)} instead. {https://github.com/RailsEventStore/rails_event_store/releases/tag/v0.33.0 More info}
-    def read_event(event_id)
-      warn <<~EOW
-        RubyEventStore::Client#read_event(event_id) has been deprecated.
-        Use `client.read.event!(event_id)` instead. Also available without
-        bang - return nil when no event is found.
-      EOW
-      read.event!(event_id)
     end
 
     # Starts building a query specification for reading events.
@@ -170,7 +168,7 @@ module RubyEventStore
       #   @return [self]
       def subscribe(handler=nil, to:, &handler2)
         raise ArgumentError if handler && handler2
-        @subscribers[handler || handler2] += normalize_to_array(to)
+        @subscribers[handler || handler2] += Array(to)
         self
       end
 
@@ -199,10 +197,6 @@ module RubyEventStore
         @global_subscribers.map do |subscriber|
           @broker.add_thread_global_subscription(subscriber)
         end
-      end
-
-      def normalize_to_array(objs)
-        return *objs
       end
     end
 
@@ -234,8 +228,21 @@ module RubyEventStore
     # {http://railseventstore.org/docs/subscribe/#async-handlers Read more}
     #
     # @return [Event, Proto] deserialized event
-    def deserialize(event_type:, event_id:, data:, metadata:)
-      mapper.serialized_record_to_event(SerializedRecord.new(event_type: event_type, event_id: event_id, data: data, metadata: metadata))
+    def deserialize(serializer:, event_type:, event_id:, data:, metadata:, timestamp: nil, valid_at: nil)
+      extract_timestamp = lambda do |m|
+        (m[:timestamp] || Time.parse(m.fetch('timestamp'))).iso8601
+      end
+
+      mapper.record_to_event(
+        SerializedRecord.new(
+          event_type: event_type,
+          event_id:   event_id,
+          data:       data,
+          metadata:   metadata,
+          timestamp:  timestamp || timestamp_ = extract_timestamp[serializer.load(metadata)],
+          valid_at:   valid_at  || timestamp_,
+        ).deserialize(serializer)
+      )
     end
 
     # Read additional metadata which will be added for published events
@@ -276,9 +283,7 @@ module RubyEventStore
     # @param events [Array<Event, Proto>, Event, Proto] event(s) to serialize and overwrite again
     # @return [self]
     def overwrite(events_or_event)
-      events = normalize_to_array(events_or_event)
-      serialized_events = serialize_events(events)
-      repository.update_messages(serialized_events)
+      repository.update_messages(transform(Array(events_or_event)))
       self
     end
 
@@ -291,29 +296,25 @@ module RubyEventStore
 
     private
 
-    def serialize_events(events)
-      events.map do |ev|
-        mapper.event_to_serialized_record(ev)
-      end
-    end
-
-    def normalize_to_array(events)
-      return *events
+    def transform(events)
+      events.map { |ev| mapper.event_to_record(ev) }
     end
 
     def enrich_events_metadata(events)
-      events = normalize_to_array(events)
+      events = Array(events)
       events.each{|event| enrich_event_metadata(event) }
       events
     end
 
     def enrich_event_metadata(event)
       metadata.each { |key, value| event.metadata[key] ||= value }
-      event.metadata[:timestamp] ||= clock.call
+      event.metadata[:timestamp]      ||= clock.call
+      event.metadata[:valid_at]       ||= event.metadata.fetch(:timestamp)
+      event.metadata[:correlation_id] ||= correlation_id_generator.call
     end
 
-    def append_to_stream_serialized_events(serialized_events, stream_name:, expected_version:)
-      repository.append_to_stream(serialized_events, Stream.new(stream_name), ExpectedVersion.new(expected_version))
+    def append_records_to_stream(records, stream_name:, expected_version:)
+      repository.append_to_stream(records, Stream.new(stream_name), ExpectedVersion.new(expected_version))
     end
 
     protected
@@ -322,6 +323,14 @@ module RubyEventStore
       @metadata.value = value
     end
 
-    attr_reader :repository, :mapper, :broker, :clock
+    def default_clock
+      ->{ Time.now.utc.round(TIMESTAMP_PRECISION) }
+    end
+
+    def default_correlation_id_generator
+      ->{ SecureRandom.uuid }
+    end
+
+    attr_reader :repository, :mapper, :broker, :clock, :correlation_id_generator
   end
 end

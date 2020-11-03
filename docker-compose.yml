@@ -1,0 +1,30 @@
+version: '3.2'
+volumes:
+  gems:
+services:
+  res:
+    build:
+      context: ./support/docker
+      dockerfile: Dockerfile.2_6
+    volumes:
+      - .:/res
+      - gems:/usr/local/bundle
+      - /res/ruby_event_store-browser/elm/elm-stuff/
+    working_dir: /res
+  mysql:
+    image: mysql:8.0
+    restart: always
+    environment:
+      - MYSQL_DATABASE=rails_event_store
+      - MYSQL_ROOT_PASSWORD=secret
+    ports:
+      - "3306:3306"
+  postgres:
+    image: postgres:11
+    command: postgres -c 'max_connections=500'
+    restart: always
+    environment:
+      - POSTGRES_DB=rails_event_store
+      - POSTGRES_PASSWORD=secret
+    ports:
+      - "5432:5432"

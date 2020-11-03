@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module RubyEventStore
   module ROM
     class UnitOfWork
@@ -8,11 +10,11 @@ module RubyEventStore
       end
 
       def call(**options)
-        gateway = @env.container.gateways.fetch(options.delete(:gateway){:default})
+        gateway = @env.rom_container.gateways.fetch(options.delete(:gateway) { :default })
 
         yield(changesets = [])
 
-        commit!(gateway, changesets, options)
+        commit!(gateway, changesets, **options)
       end
 
       def commit!(gateway, changesets, **options)

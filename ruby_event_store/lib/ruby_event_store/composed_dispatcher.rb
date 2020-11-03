@@ -1,13 +1,15 @@
+# frozen_string_literal: true
+
 module RubyEventStore
   class ComposedDispatcher
     def initialize(*dispatchers)
       @dispatchers = dispatchers
     end
 
-    def call(subscriber, event, serialized_event)
+    def call(subscriber, event, record)
       @dispatchers.each do |dispatcher|
         if dispatcher.verify(subscriber)
-          dispatcher.call(subscriber, event, serialized_event)
+          dispatcher.call(subscriber, event, record)
           break
         end
       end

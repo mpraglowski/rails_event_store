@@ -1,17 +1,20 @@
-module RubyEventStore
-  WrongExpectedEventVersion = Class.new(StandardError)
-  InvalidExpectedVersion    = Class.new(StandardError)
-  IncorrectStreamData       = Class.new(StandardError)
-  SubscriberNotExist        = Class.new(StandardError)
-  InvalidPageStart          = Class.new(ArgumentError)
-  InvalidPageSize           = Class.new(ArgumentError)
-  EventDuplicatedInStream   = Class.new(StandardError)
-  NotSupported              = Class.new(StandardError)
-  ReservedInternalName      = Class.new(StandardError)
-  InvalidHandler            = Class.new(StandardError)
-  ProtobufEncodingFailed    = Class.new(StandardError)
+# frozen_string_literal: true
 
-  class EventNotFound < StandardError
+module RubyEventStore
+  Error                     = Class.new(StandardError)
+  WrongExpectedEventVersion = Class.new(Error)
+  InvalidExpectedVersion    = Class.new(Error)
+  IncorrectStreamData       = Class.new(Error)
+  SubscriberNotExist        = Class.new(Error)
+  InvalidPageStart          = Class.new(Error)
+  InvalidPageStop           = Class.new(Error)
+  InvalidPageSize           = Class.new(Error)
+  EventDuplicatedInStream   = Class.new(Error)
+  ReservedInternalName      = Class.new(Error)
+  InvalidHandler            = Class.new(Error)
+  ProtobufEncodingFailed    = Class.new(Error)
+
+  class EventNotFound < Error
     attr_reader :event_id
 
     def initialize(event_id)

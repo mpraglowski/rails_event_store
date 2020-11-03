@@ -1,7 +1,9 @@
+# frozen_string_literal: true
+
 require 'aggregate_root'
 require 'ruby_event_store'
-require_relative '../../lib/rspec_defaults'
-require_relative '../../lib/mutant_timeout'
+require_relative '../../support/helpers/rspec_defaults'
+require_relative '../../support/helpers/mutant_timeout'
 
 RSpec.configure do |spec|
   spec.before(:each) do
@@ -15,7 +17,7 @@ module Orders
   module Events
     OrderCreated = Class.new(RubyEventStore::Event)
     OrderExpired = Class.new(RubyEventStore::Event)
-    OrderA1BcdEFghI2Jz = Class.new(RubyEventStore::Event)
+    OrderCanceled = Class.new(RubyEventStore::Event)
     SpanishInquisition = Class.new(RubyEventStore::Event)
   end
 end
@@ -24,11 +26,21 @@ class Order
   include AggregateRoot
   include Orders::Events
 
-  def initialize
+  def initialize(uuid)
     @status = :draft
+    @uuid   = uuid
+  end
+
+  def create
+    apply OrderCreated.new
+  end
+
+  def expire
+    apply OrderExpired.new
   end
 
   attr_accessor :status
+
   private
 
   def apply_order_created(_event)
@@ -38,47 +50,37 @@ class Order
   def apply_order_expired(_event)
     @status = :expired
   end
-
-  def apply_order_a1_bcd_e_fgh_i2_jz(_event)
-    @status = :all_your_base_are_belong_to_us
-  end
 end
 
 class OrderWithNonStrictApplyStrategy
-  include AggregateRoot
-  def apply_strategy
-    DefaultApplyStrategy.new(strict: false)
-  end
+  include AggregateRoot.with_strategy(->{ AggregateRoot::DefaultApplyStrategy.new(strict: false) })
 end
 
 class CustomOrderApplyStrategy
   def call(aggregate, event)
     {
-      Orders::Events::OrderCreated => aggregate.method(:custom_created),
-      Orders::Events::OrderExpired => aggregate.method(:custom_expired),
-    }.fetch(event.class, ->(ev) {}).call(event)
+      'Orders::Events::OrderCreated' => aggregate.method(:custom_created),
+      'Orders::Events::OrderExpired' => aggregate.method(:custom_expired),
+    }.fetch(event.event_type, ->(ev) {}).call(event)
   end
 end
 
 class OrderWithCustomStrategy
-  include AggregateRoot
+  include AggregateRoot.with_strategy(-> { CustomOrderApplyStrategy.new })
 
   def initialize
     @status = :draft
   end
 
-  def apply_strategy
-    @apply_strategy ||= CustomOrderApplyStrategy.new
-  end
-
   attr_accessor :status
+
   private
 
-  def custom_created(event)
+  def custom_created(_event)
     @status = :created
   end
 
-  def custom_expired(event)
+  def custom_expired(_event)
     @status = :expired
   end
 end

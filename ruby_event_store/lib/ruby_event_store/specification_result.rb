@@ -1,15 +1,52 @@
+# frozen_string_literal: true
+
 module RubyEventStore
   class SpecificationResult
     def initialize(direction: :forward,
-                   start: :head,
+                   start: nil,
+                   stop: nil,
+                   older_than: nil,
+                   older_than_or_equal: nil,
+                   newer_than: nil,
+                   newer_than_or_equal: nil,
+                   time_sort_by: nil,
                    count: nil,
                    stream: Stream.new(GLOBAL_STREAM),
                    read_as: :all,
                    batch_size: Specification::DEFAULT_BATCH_SIZE,
                    with_ids: nil,
                    with_types: nil)
-      @attributes = Struct.new(:direction, :start, :count, :stream, :read_as, :batch_size, :with_ids, :with_types)
-        .new(direction, start, count, stream, read_as, batch_size, with_ids, with_types)
+      @attributes = Struct.new(
+        :direction,
+        :start,
+        :stop,
+        :older_than,
+        :older_than_or_equal,
+        :newer_than,
+        :newer_than_or_equal,
+        :time_sort_by,
+        :count,
+        :stream,
+        :read_as,
+        :batch_size,
+        :with_ids,
+        :with_types
+      ).new(
+        direction,
+        start,
+        stop,
+        older_than,
+        older_than_or_equal,
+        newer_than,
+        newer_than_or_equal,
+        time_sort_by,
+        count,
+        stream,
+        read_as,
+        batch_size,
+        with_ids,
+        with_types
+      )
       freeze
     end
 
@@ -37,20 +74,60 @@ module RubyEventStore
       attributes.stream
     end
 
-    # Starting position. True is starting from head
+    # Starting position. Event id of starting event
     # {http://railseventstore.org/docs/read/ Find out more}.
     #
-    # @return [Boolean]
-    def head?
-      start.equal?(:head)
+    # @return [String]
+    def start
+      attributes.start
     end
 
-    # Starting position. Event id of starting event or :head
+    # Stop position. Event id of stopping event
     # {http://railseventstore.org/docs/read/ Find out more}.
     #
     # @return [String|Symbol]
-    def start
-      attributes.start
+    def stop
+      attributes.stop
+    end
+
+    # Ending time.
+    # {http://railseventstore.org/docs/read/ Find out more}.
+    #
+    # @return [Time]
+    def older_than
+      attributes.older_than
+    end
+
+    # Ending time.
+    # {http://railseventstore.org/docs/read/ Find out more}.
+    #
+    # @return [Time]
+    def older_than_or_equal
+      attributes.older_than_or_equal
+    end
+
+    # Starting time.
+    # {http://railseventstore.org/docs/read/ Find out more}.
+    #
+    # @return [Time]
+    def newer_than
+      attributes.newer_than
+    end
+
+    # Starting time.
+    # {http://railseventstore.org/docs/read/ Find out more}.
+    #
+    # @return [Time]
+    def newer_than_or_equal
+      attributes.newer_than_or_equal
+    end
+
+    # Time sorting strategy. Nil when not specified.
+    # {http://railseventstore.org/docs/read/ Find out more}.
+    #
+    # @return [Symbol]
+    def time_sort_by
+      attributes.time_sort_by
     end
 
     # Read direction. True is reading forward
@@ -148,7 +225,7 @@ module RubyEventStore
     def dup
       new_attributes = attributes.dup
       yield new_attributes if block_given?
-      SpecificationResult.new(new_attributes.to_h)
+      SpecificationResult.new(**new_attributes.to_h)
     end
 
     # Two specification attributess are equal if:
@@ -175,6 +252,12 @@ module RubyEventStore
     # * class
     # * direction
     # * start
+    # * stop
+    # * older_than
+    # * older_than_or_equal
+    # * newer_than
+    # * newer_than_or_equal
+    # * time_sort_by
     # * count
     # * stream
     # * read_as
@@ -188,6 +271,12 @@ module RubyEventStore
         self.class,
         get_direction,
         start,
+        stop,
+        older_than,
+        older_than_or_equal,
+        newer_than,
+        newer_than_or_equal,
+        time_sort_by,
         limit,
         stream,
         attributes.read_as,
@@ -195,43 +284,6 @@ module RubyEventStore
         with_ids,
         with_types,
       ].hash ^ BIG_VALUE
-    end
-
-    # @deprecated Use {#limit} instead. {https://github.com/RailsEventStore/rails_event_store/releases/tag/v0.32.0 More info}
-    def count
-      warn <<~EOW
-        RubyEventStore::SpecificationResult#count has been deprecated.
-        Use RubyEventStore::SpecificationResult#limit instead.
-      EOW
-      limit
-    end
-
-    # @deprecated Use {#forward?} or {#backward?} instead. {https://github.com/RailsEventStore/rails_event_store/releases/tag/v0.32.0 More info}
-    def direction
-      warn <<~EOW
-        RubyEventStore::SpecificationResult#direction has been deprecated.
-        Use RubyEventStore::SpecificationResult#forward? or
-        RubyEventStore::SpecificationResult#backward? instead.
-      EOW
-      get_direction
-    end
-
-    # @deprecated Use {#stream.name} instead. {https://github.com/RailsEventStore/rails_event_store/releases/tag/v0.32.0 More info}
-    def stream_name
-      warn <<~EOW
-        RubyEventStore::SpecificationResult#stream_name has been deprecated.
-        Use RubyEventStore::SpecificationResult#stream.name instead.
-      EOW
-      stream.name
-    end
-
-    # @deprecated Use {#stream.global?} instead. {https://github.com/RailsEventStore/rails_event_store/releases/tag/v0.32.0 More info}
-    def global_stream?
-      warn <<~EOW
-        RubyEventStore::SpecificationResult#global_stream? has been deprecated.
-        Use RubyEventStore::SpecificationResult#stream.global? instead.
-      EOW
-      stream.global?
     end
 
     private

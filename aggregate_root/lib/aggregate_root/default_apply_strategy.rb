@@ -1,14 +1,15 @@
+# frozen_string_literal: true
+
 module AggregateRoot
   MissingHandler = Class.new(StandardError)
 
   class DefaultApplyStrategy
-    def initialize(strict: true, on_methods: {})
+    def initialize(strict: true)
       @strict = strict
-      @on_methods = on_methods
     end
 
     def call(aggregate, event)
-      name = handler_name(event)
+      name = handler_name(aggregate, event)
       if aggregate.respond_to?(name, true)
         aggregate.method(name).call(event)
       else
@@ -18,24 +19,22 @@ module AggregateRoot
 
     private
 
-    def handler_name(event)
-      on_methods.fetch(event.class) { handler_name_by_class(event.class) }
+    def handler_name(aggregate, event)
+      on_dsl_handler_name(aggregate, event.event_type) || apply_handler_name(event.event_type)
     end
 
-    def handler_name_by_class(event_class)
-      "apply_#{to_snake_case(event_class.name)}"
+    def on_dsl_handler_name(aggregate, event_type)
+      aggregate.class.on_methods[event_type] if aggregate.class.respond_to?(:on_methods)
     end
 
-    def to_snake_case(class_name)
-      class_name
-        .split("::")
-        .last
-        .gsub(/([A-Z\d]+)([A-Z][a-z])/, '\1_\2')
-        .gsub(/([a-z\d])([A-Z])/, '\1_\2')
-        .downcase
+    def apply_handler_name(event_type)
+      "apply_#{Transform.to_snake_case(event_type(event_type))}"
     end
 
-    private
+    def event_type(event_type)
+      event_type.split(%r{::|\.}).last
+    end
+
     attr_reader :strict, :on_methods
   end
 end

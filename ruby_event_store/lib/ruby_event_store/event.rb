@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'securerandom'
 
 module RubyEventStore
@@ -28,22 +30,8 @@ module RubyEventStore
 
     # Type of event. Used when matching with subscribed handlers.
     # @return [String]
-    def type
+    def event_type
       self.class.name
-    end
-
-    # Returns a hash representation of the event.
-    #
-    # Metadata is converted to hash as well
-    #
-    # @return [Hash] with :event_id, :metadata, :data, :type keys
-    def to_h
-      {
-          event_id:   event_id,
-          metadata:   metadata.to_h,
-          data:       data,
-          type:       type,
-      }
     end
 
     # Timestamp from metadata
@@ -51,6 +39,13 @@ module RubyEventStore
     # @return [Time, nil]
     def timestamp
       metadata[:timestamp]
+    end
+
+    # Validity time from metadata
+    #
+    # @return [Time, nil]
+    def valid_at
+      metadata[:valid_at]
     end
 
     # Two events are equal if:
@@ -133,6 +128,7 @@ module RubyEventStore
     def correlate_with(other_message)
       self.correlation_id = other_message.correlation_id || other_message.message_id
       self.causation_id   = other_message.message_id
+      self
     end
 
     alias_method :eql?, :==

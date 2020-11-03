@@ -1,4 +1,5 @@
 require 'spec_helper'
+require 'ruby_event_store/spec/event_lint'
 
 module Test
   TestCreated = Class.new(RubyEventStore::Event)
@@ -7,6 +8,7 @@ end
 
 module RubyEventStore
   RSpec.describe Event do
+    it_behaves_like :event, Event
 
     specify 'default values' do
       event = Test::TestCreated.new
@@ -16,6 +18,7 @@ module RubyEventStore
       expect(event.data.to_h).to              eq({})
       expect(event.metadata.to_h).to          eq({})
       expect(event.timestamp).to              be_nil
+      expect(event.valid_at).to               be_nil
     end
 
     specify 'constructor attributes are used as event data' do
@@ -25,6 +28,7 @@ module RubyEventStore
       expect(event.data).to          eq({sample: 123})
       expect(event.metadata.to_h).to eq({})
       expect(event.timestamp).to     be_nil
+      expect(event.valid_at).to      be_nil
     end
 
     specify 'constructor event_id attribute is used as event id' do
@@ -43,6 +47,15 @@ module RubyEventStore
       expect(event.metadata[:created_by]).to eq('Someone')
     end
 
+    specify 'constructor valid_at attribute is used as event metadata (with validity time changed)' do
+      valid_at = Time.utc(2016, 3, 10, 15, 20)
+      event = Test::TestCreated.new(metadata: {created_by: 'Someone', valid_at: valid_at})
+      expect(event.event_id).to_not          be_nil
+      expect(event.data).to                  eq({})
+      expect(event.valid_at).to              eq(valid_at)
+      expect(event.metadata[:created_by]).to eq('Someone')
+    end
+
     specify 'for empty data it initializes instance with default values' do
       event = Test::TestCreated.new
       expect(event.event_id).to_not  be_nil
@@ -56,7 +69,7 @@ module RubyEventStore
     end
 
     specify 'UUID should be String' do
-      event_1 = Test::TestCreated.new({event_id: 1})
+      event_1 = Test::TestCreated.new(event_id: 1)
       event_2 = Test::TestCreated.new
       expect(event_1.event_id).to be_an_instance_of(String)
       expect(event_2.event_id).to be_an_instance_of(String)
@@ -76,7 +89,7 @@ module RubyEventStore
 
     specify 'two events are equal if their attributes are equal' do
       event_data = { foo: 'bar' }
-      event_metadata = { timestamp: Time.now }
+      event_metadata = { timestamp: Time.now.utc }
       event = Test::TestCreated.new(event_id: '1', data: event_data, metadata: event_metadata)
       same_event = Test::TestCreated.new(event_id: '1', data: event_data, metadata: event_metadata)
       expect(event).to eq(same_event)
@@ -84,7 +97,7 @@ module RubyEventStore
 
     specify 'two events are not equal if their payload is different' do
       event_data = { foo: 'bar' }
-      event_metadata = { timestamp: Time.now }
+      event_metadata = { timestamp: Time.now.utc }
       event = Test::TestCreated.new(event_id: '1', data: event_data, metadata: event_metadata)
       different_event = Test::TestCreated.new(event_id: '1', data: event_data.merge(price: 123), metadata: event_metadata)
       expect(event).not_to eq(different_event)
@@ -92,7 +105,7 @@ module RubyEventStore
 
     specify 'two events are not equal if their types are different' do
       TestDeleted = Class.new(RubyEventStore::Event)
-      event_metadata = { timestamp: Time.now }
+      event_metadata = { timestamp: Time.now.utc }
       event = Test::TestCreated.new(event_id: '1', metadata: event_metadata)
       different_event = TestDeleted.new(event_id: '1', metadata: event_metadata)
       expect(event).not_to eq(different_event)
@@ -102,16 +115,6 @@ module RubyEventStore
       event = Test::TestCreated.new
       object = Object.new
       expect(event).not_to eq(object)
-    end
-
-    specify 'convert to hash' do
-      hash = {
-          data: { data: 'sample' },
-          event_id: 'b2d506fd-409d-4ec7-b02f-c6d2295c7edd',
-          metadata: { meta: 'test'},
-      }
-      event = Test::TestCreated.new(hash)
-      expect(event.to_h).to eq(hash.merge(type: 'Test::TestCreated'))
     end
 
     specify 'only events with the same class, event_id & data are equal' do

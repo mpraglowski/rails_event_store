@@ -1,11 +1,13 @@
+# frozen_string_literal: true
+
 module RubyEventStore
   class ImmediateAsyncDispatcher
     def initialize(scheduler:)
       @scheduler = scheduler
     end
 
-    def call(subscriber, _, serialized_event)
-      @scheduler.call(subscriber, serialized_event)
+    def call(subscriber, _, record)
+      @scheduler.call(subscriber, record)
     end
 
     def verify(subscriber)

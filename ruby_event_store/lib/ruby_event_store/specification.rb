@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module RubyEventStore
 
   # Used for building and executing the query specification.
@@ -22,19 +24,116 @@ module RubyEventStore
     # Limits the query to events before or after another event.
     # {http://railseventstore.org/docs/read/ Find out more}.
     #
-    # @param start [:head, String] id of event to start reading from.
-    #   :head can mean the beginning or end of the stream, depending on the
-    #   #direction
+    # @param start [String] id of event to start reading from.
     # @return [Specification]
     def from(start)
-      case start
-      when Symbol
-        raise InvalidPageStart unless [:head].include?(start)
-      else
-        raise InvalidPageStart if start.nil? || start.empty?
-        raise EventNotFound.new(start) unless reader.has_event?(start)
-      end
+      raise InvalidPageStart if start.nil? || start.empty?
+      raise EventNotFound.new(start) unless reader.has_event?(start)
       Specification.new(reader, result.dup { |r| r.start = start })
+    end
+
+    # Limits the query to events before or after another event.
+    # {http://railseventstore.org/docs/read/ Find out more}.
+    #
+    # @param stop [String] id of event to start reading from.
+    # @return [Specification]
+    def to(stop)
+      raise InvalidPageStop if stop.nil? || stop.empty?
+      raise EventNotFound.new(stop) unless reader.has_event?(stop)
+      Specification.new(reader, result.dup { |r| r.stop = stop })
+    end
+
+    # Limits the query to events that later than given time.
+    # {http://railseventstore.org/docs/read/ Find out more}.
+    #
+    # @param time [Time]
+    # @return [Specification]
+    def older_than(time)
+      raise ArgumentError unless time.respond_to?(:to_time)
+      Specification.new(
+        reader,
+        result.dup do |r|
+          r.older_than          = time
+          r.older_than_or_equal = nil
+        end
+      )
+    end
+
+    # Limits the query to events that occurred on given time or later.
+    # {http://railseventstore.org/docs/read/ Find out more}.
+    #
+    # @param time [Time]
+    # @return [Specification]
+    def older_than_or_equal(time)
+      raise ArgumentError unless time.respond_to?(:to_time)
+      Specification.new(
+        reader,
+        result.dup do |r|
+          r.older_than          = nil
+          r.older_than_or_equal = time
+        end
+      )
+    end
+
+    # Limits the query to events that occurred earlier than given time.
+    # {http://railseventstore.org/docs/read/ Find out more}.
+    #
+    # @param time [Time]
+    # @return [Specification]
+    def newer_than(time)
+      raise ArgumentError unless time.respond_to?(:to_time)
+      Specification.new(
+        reader,
+        result.dup do |r|
+          r.newer_than_or_equal = nil
+          r.newer_than          = time
+        end
+      )
+    end
+
+    # Limits the query to events that occurred on given time or earlier.
+    # {http://railseventstore.org/docs/read/ Find out more}.
+    #
+    # @param time [Time]
+    # @return [Specification]
+    def newer_than_or_equal(time)
+      raise ArgumentError unless time.respond_to?(:to_time)
+      Specification.new(
+        reader,
+        result.dup do |r|
+          r.newer_than_or_equal = time
+          r.newer_than          = nil
+        end
+      )
+    end
+
+    # Limits the query to events within given time range.
+    # {http://railseventstore.org/docs/read/ Find out more}.
+    #
+    # @param time_range [Range]
+    # @return [Specification]
+    def between(time_range)
+      if time_range.exclude_end?
+        newer_than_or_equal(time_range.first).older_than(time_range.last)
+      else
+        newer_than_or_equal(time_range.first).older_than_or_equal(time_range.last)
+      end
+    end
+
+    # Sets the order of time sorting using transaction time
+    # {http://railseventstore.org/docs/read/ Find out more}
+    #
+    # @return [Specification]
+    def as_at
+      Specification.new(reader, result.dup { |r| r.time_sort_by = :as_at})
+    end
+
+    # Sets the order of time sorting using validity time
+    # {http://railseventstore.org/docs/read/ Find out more}
+    #
+    # @return [Specification]
+    def as_of
+      Specification.new(reader, result.dup { |r| r.time_sort_by = :as_of })
     end
 
     # Sets the order of reading events to ascending (forward from the start).
@@ -89,6 +188,35 @@ module RubyEventStore
       each_batch do |batch|
         batch.each { |event| yield event }
       end
+    end
+
+    # Executes the query based on the specification built up to this point
+    # and maps the result using provided block.
+    # {http://railseventstore.org/docs/read/ Find out more}.
+    #
+    # @return [Array] of mapped result
+    def map(&block)
+      raise ArgumentError.new("Block must be given") unless block_given?
+      each.map(&block)
+    end
+
+    # Reduces the results of the query based on the specification
+    # built up to this point result using provided block.
+    # {http://railseventstore.org/docs/read/ Find out more}.
+    #
+    # @param accumulator starting state for reduce operation
+    # @return reduce result as defined by block given
+    def reduce(accumulator = nil, &block)
+      raise ArgumentError.new("Block must be given") unless block_given?
+      each.reduce(accumulator, &block)
+    end
+
+    # Calculates the size of result set based on the specification build up to this point.
+    # {http://railseventstore.org/docs/read/ Find out more}.
+    #
+    # @return [Integer] Number of events to read
+    def count
+      reader.count(result)
     end
 
     # Executes the query based on the specification built up to this point.
@@ -152,19 +280,20 @@ module RubyEventStore
       reader.one(read_last.result)
     end
 
-    # Limits the query to certain event types.
+    # Limits the query to certain event type(s).
     # {http://railseventstore.org/docs/read/ Find out more}.
     #
-    # @types [Array(Class)] types of event to look for.
+    # @types [Class, Array(Class)] types of event to look for.
     # @return [Specification]
-    def of_type(types)
-      Specification.new(reader, result.dup{ |r| r.with_types = types })
+    def of_type(*types)
+      Specification.new(reader, result.dup{ |r| r.with_types = types.flatten })
     end
+    alias_method :of_types, :of_type
 
     # Limits the query to certain events by given even ids.
     # {http://railseventstore.org/docs/read/ Find out more}.
     #
-    # @param even_ids [Array(String)] ids of event to look for.
+    # @param event_ids [Array(String)] ids of event to look for.
     # @return [Specification]
     def with_id(event_ids)
       Specification.new(reader, result.dup{ |r| r.with_ids = event_ids })

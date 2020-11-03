@@ -1,10 +1,9 @@
-source "https://rubygems.org"
+# frozen_string_literal: true
 
-git_source(:github) {|repo_name| "https://github.com/#{repo_name}" }
-
-# Specify your gem's dependencies in bounded_context.gemspec
+source 'https://rubygems.org'
+git_source(:github) { |repo| "https://github.com/#{repo}.git" }
 gemspec
 
-if v = ENV['RAILS_VERSION']
-  gem 'rails', v
-end
+eval_gemfile File.expand_path('../support/bundler/Gemfile.shared', __dir__)
+
+gem 'rails', ENV['RAILS_VERSION']

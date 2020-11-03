@@ -1,16 +1,11 @@
 require 'spec_helper'
-
+require 'ruby_event_store/spec/mapper_lint'
 
 module RubyEventStore
   RSpec.describe Proto do
-    before(:each) do
-      begin
-        require_relative 'events_pb.rb'
-        require 'protobuf_nested_struct'
-      rescue LoadError => exc
-        skip if exc.message == "cannot load such file -- google/protobuf_c"
-      end
-    end
+    include ProtobufHelper
+
+    before(:each) { require_protobuf_dependencies }
 
     specify 'equality' do
       event_1 = RubyEventStore::Proto.new(
@@ -130,30 +125,14 @@ module RubyEventStore
       expect(event_1).not_to eq(event_2)
     end
 
-    specify 'yaml serialization' do
-      event = RubyEventStore::Proto.new(
-        event_id: "f90b8848-e478-47fe-9b4a-9f2a1d53622b",
-        data: ResTesting::OrderCreated.new(
-          customer_id: 123,
-          order_id: "K3THNX9",
-        ),
-        metadata: {
-          time: Time.new(2018, 12, 13, 11 ),
-        }
-      )
-      copy = YAML.load(YAML.dump(event))
-      expect(copy).to eq(event)
-      expect(copy.metadata.to_h).to eq(event.metadata.to_h)
-    end
-
-    specify 'type' do
+    specify 'event type' do
       event = RubyEventStore::Proto.new(
         data: ResTesting::OrderCreated.new(
           customer_id: 123,
           order_id: "K3THNX9",
         ),
       )
-      expect(event.type).to eq("res_testing.OrderCreated")
+      expect(event.event_type).to eq("res_testing.OrderCreated")
     end
 
     specify 'defaults' do
@@ -176,16 +155,13 @@ module RubyEventStore
 
   module Mappers
     RSpec.describe Protobuf do
-      before(:each) do
-        begin
-          require_relative 'events_pb.rb'
-          require 'protobuf_nested_struct'
-        rescue LoadError => exc
-          skip if exc.message == "cannot load such file -- google/protobuf_c"
-        end
-      end
+      include ProtobufHelper
+      extend  ProtobufHelper
 
-      let(:event_id)     { "f90b8848-e478-47fe-9b4a-9f2a1d53622b" }
+      before(:each) { require_protobuf_dependencies }
+
+      let(:time)     { Time.now.utc }
+      let(:event_id) { "f90b8848-e478-47fe-9b4a-9f2a1d53622b" }
       let(:metadata) { {
         one: 1,
         two: 2.0,
@@ -196,6 +172,10 @@ module RubyEventStore
         seven: true,
         eight: false,
         nein: nil,
+        ten: {some: 'hash', with: {nested: 'values'}},
+        eleven: [1,2,3],
+        timestamp: time,
+        valid_at: time
       } }
       let(:data) do
         ResTesting::OrderCreated.new(
@@ -211,72 +191,57 @@ module RubyEventStore
         )
       end
 
-      specify "initialize requires protobuf_nested_struct" do
-        p = Protobuf.allocate
-        def p.require(_name)
-          raise LoadError
-        end
-        expect do
-          p.send(:initialize)
-        end.to raise_error(LoadError, "cannot load such file -- protobuf_nested_struct. Add protobuf_nested_struct gem to Gemfile")
+      require_protobuf_dependencies do
+        it_behaves_like :mapper, Protobuf.new,
+          TimeEnrichment.with(
+            RubyEventStore::Proto.new(
+              data: ResTesting::OrderCreated.new(
+                customer_id: 123,
+                order_id: "K3THNX9",
+              )
+            )
+          )
       end
 
-      specify '#event_to_serialized_record returns proto serialized record' do
-        record = subject.event_to_serialized_record(domain_event)
-        expect(record).to              be_a(SerializedRecord)
+      specify '#event_to_record returns proto serialized record' do
+        record = Protobuf.new.event_to_record(domain_event)
+        expect(record).to              be_a(Record)
         expect(record.event_id).to     eq(event_id)
         expect(record.data).not_to     be_empty
         expect(record.metadata).not_to be_empty
         expect(record.event_type).to   eq("res_testing.OrderCreated")
+        expect(record.timestamp).to    eq(time)
+        expect(record.valid_at).to     eq(time)
       end
 
-      specify '#serialized_record_to_event returns event instance' do
-        record = subject.event_to_serialized_record(domain_event)
-        event  = subject.serialized_record_to_event(record)
+      specify '#record_to_event returns event instance' do
+        record = Protobuf.new.event_to_record(domain_event)
+        event  = Protobuf.new.record_to_event(record)
         expect(event).to                eq(domain_event)
         expect(event.event_id).to       eq(event_id)
         expect(event.data).to           eq(data)
         expect(event.metadata.to_h).to  eq(metadata)
+        expect(event.timestamp).to      eq(time)
+        expect(event.valid_at).to       eq(time)
       end
 
-      specify '#serialized_record_to_event is using events class remapping' do
-        subject = described_class.new(
+      specify '#record_to_event is using events class remapping' do
+        subject = Protobuf.new(
           events_class_remapping: {'res_testing.OrderCreatedBeforeRefactor' => "res_testing.OrderCreated"}
         )
-        record = SerializedRecord.new(
-          event_id:   event_id,
+        record = Record.new(
+          event_id:   "f90b8848-e478-47fe-9b4a-9f2a1d53622b",
           data:       "",
           metadata:   "",
           event_type: "res_testing.OrderCreatedBeforeRefactor",
+          timestamp:  time,
+          valid_at:   time,
         )
-        event = subject.serialized_record_to_event(record)
+        event = subject.record_to_event(record)
         expect(event.data.class).to eq(ResTesting::OrderCreated)
-        expect(event.type).to eq("res_testing.OrderCreated")
-      end
-
-      specify '#event_to_serialized_record raises error when no data' do
-        domain_event =
-          RubyEventStore::Proto.new(
-            event_id: "f90b8848-e478-47fe-9b4a-9f2a1d53622b",
-            data:     nil,
-            metadata: metadata,
-          )
-        expect do
-          subject.event_to_serialized_record(domain_event)
-        end.to raise_error(ProtobufEncodingFailed)
-      end
-
-      specify '#event_to_serialized_record raises error when wrong data' do
-        domain_event =
-          RubyEventStore::Proto.new(
-            event_id: "f90b8848-e478-47fe-9b4a-9f2a1d53622b",
-            data:     {},
-            metadata: metadata,
-            )
-
-        expect do
-          subject.event_to_serialized_record(domain_event)
-        end.to raise_error(ProtobufEncodingFailed)
+        expect(event.event_type).to eq("res_testing.OrderCreated")
+        expect(event.timestamp).to  eq(time)
+        expect(event.valid_at).to   eq(time)
       end
     end
   end

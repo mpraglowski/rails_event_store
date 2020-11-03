@@ -1,13 +1,15 @@
+# frozen_string_literal: true
+
 module RubyEventStore
   module Mappers
-    class NullMapper
+    class NullMapper < PipelineMapper
 
-      def event_to_serialized_record(domain_event)
-        domain_event
+      def initialize
+        super(Pipeline.new)
       end
 
-      def serialized_record_to_event(record)
-        record
+      def serializer
+        NULL
       end
     end
   end

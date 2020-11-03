@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module RubyEventStore
   class InstrumentedDispatcher
     def initialize(dispatcher, instrumentation)
@@ -5,9 +7,9 @@ module RubyEventStore
       @instrumentation = instrumentation
     end
 
-    def call(subscriber, event, serialized_event)
+    def call(subscriber, event, record)
       instrumentation.instrument("call.dispatcher.rails_event_store", event: event, subscriber: subscriber) do
-        dispatcher.call(subscriber, event, serialized_event)
+        dispatcher.call(subscriber, event, record)
       end
     end
 

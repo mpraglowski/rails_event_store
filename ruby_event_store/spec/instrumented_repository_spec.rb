@@ -1,5 +1,6 @@
 require 'spec_helper'
 require 'ruby_event_store/spec/event_repository_lint'
+require 'active_support/core_ext/object/try'
 require 'active_support/notifications'
 
 module RubyEventStore
@@ -122,6 +123,31 @@ module RubyEventStore
       end
     end
 
+    describe "#count" do
+      specify "wraps around original implementation" do
+        some_repository = spy
+        instrumented_repository = InstrumentedRepository.new(some_repository, ActiveSupport::Notifications)
+        specification = double
+
+        instrumented_repository.count(specification)
+
+        expect(some_repository).to have_received(:count).with(specification)
+      end
+
+      specify "instruments" do
+        instrumented_repository = InstrumentedRepository.new(spy, ActiveSupport::Notifications)
+        subscribe_to("count.repository.rails_event_store") do |notification_calls|
+          specification = double
+
+          instrumented_repository.count(specification)
+
+          expect(notification_calls).to eq([
+            { specification: specification }
+          ])
+        end
+      end
+    end
+
     describe "#update_messages" do
       specify "wraps around original implementation" do
         some_repository = spy
@@ -183,18 +209,28 @@ module RubyEventStore
 end
 
 module RubyEventStore
-  RSpec.describe InstrumentedRepository do
-    subject do
-      InstrumentedRepository.new(InMemoryRepository.new, ActiveSupport::Notifications)
+  class InstrumentedRepository
+    class SpecHelper < EventRepositoryHelper
+      def supports_concurrent_auto?
+        false
+      end
+
+      def supports_concurrent_any?
+        false
+      end
+
+      def supports_binary?
+        false
+      end
+
+      def supports_upsert?
+        false
+      end
     end
-
-    let(:test_race_conditions_any)   { false }
-    let(:test_race_conditions_auto)  { false }
-    let(:test_expected_version_auto) { true }
-    let(:test_link_events_to_stream) { true }
-    let(:test_binary) { false }
-    let(:test_change) { false }
-
-    it_behaves_like :event_repository, InstrumentedRepository
+  end
+  RSpec.describe InstrumentedRepository do
+    include_examples :event_repository
+    let(:repository) { InstrumentedRepository.new(InMemoryRepository.new, ActiveSupport::Notifications) }
+    let(:helper) { InstrumentedRepository::SpecHelper.new }
   end
 end

@@ -1,7 +1,7 @@
 require 'spec_helper'
 require 'pathname'
 require 'fileutils'
-require_relative '../../lib/subprocess_helper'
+require_relative '../../support/helpers/subprocess_helper'
 
 RSpec.describe RailsEventStoreActiveRecord do
   include SchemaHelper
@@ -36,12 +36,12 @@ RSpec.describe RailsEventStoreActiveRecord do
 
       EventA1 = Class.new(RubyEventStore::Event)
 
-      client = RubyEventStore::Client.new(repository: RailsEventStoreActiveRecord::EventRepository.new)
+      client = RubyEventStore::Client.new(repository: RailsEventStoreActiveRecord::EventRepository.new(serializer: YAML))
       client.append(
         EventA1.new(
           data: {
             a1: true,
-            decimal: BigDecimal.new("20.00"),
+            decimal: BigDecimal("20.00"),
           },
           event_id: "d39cb65f-bc3c-4fbb-9470-52bf5e322bba"
         ),

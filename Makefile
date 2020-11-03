@@ -10,7 +10,6 @@ GEMS         = aggregate_root \
                ruby_event_store-rom \
                rails_event_store \
                rails_event_store_active_record \
-               rails_event_store_active_record-legacy \
                rails_event_store-rspec
 
 ifeq ($(NIX_TYPE),Linux)
@@ -29,6 +28,9 @@ $(addprefix reinstall-, $(GEMS)):
 
 $(addprefix test-, $(GEMS)):
 	@make -C $(subst test-,,$@) test
+
+$(addprefix mutate-changes-, $(GEMS)):
+	@make -C $(subst mutate-changes-,,$@) mutate-changes
 
 $(addprefix mutate-, $(GEMS)):
 	@make -C $(subst mutate-,,$@) mutate
@@ -61,17 +63,18 @@ git-rebase-from-upstream:
 
 set-version: git-check-clean git-check-committed
 	@echo $(RES_VERSION) > RES_VERSION
-	@find . -name version.rb -exec sed $(SED_OPTS) "s/\(VERSION = \)\(.*\)/\1\"$(RES_VERSION)\"/" {} \;
-	@find . -name *.gemspec -exec sed $(SED_OPTS) "s/\('ruby_event_store', \)\(.*\)/\1'= $(RES_VERSION)'/" {} \;
-	@find . -name *.gemspec -exec sed $(SED_OPTS) "s/\('ruby_event_store-browser', \)\(.*\)/\1'= $(RES_VERSION)'/" {} \;
-	@find . -name *.gemspec -exec sed $(SED_OPTS) "s/\('ruby_event_store-rom', \)\(.*\)/\1'= $(RES_VERSION)'/" {} \;
-	@find . -name *.gemspec -exec sed $(SED_OPTS) "s/\('rails_event_store_active_record', \)\(.*\)/\1'= $(RES_VERSION)'/" {} \;
-	@find . -name *.gemspec -exec sed $(SED_OPTS) "s/\('rails_event_store_active_record-legacy', \)\(.*\)/\1'= $(RES_VERSION)'/" {} \;
-	@find . -name *.gemspec -exec sed $(SED_OPTS) "s/\('aggregate_root', \)\(.*\)/\1'= $(RES_VERSION)'/" {} \;
-	@find . -name *.gemspec -exec sed $(SED_OPTS) "s/\('bounded_context', \)\(.*\)/\1'= $(RES_VERSION)'/" {} \;
-	@find . -name *.gemspec -exec sed $(SED_OPTS) "s/\('rails_event_store', \)\(.*\)/\1'= $(RES_VERSION)'/" {} \;
-	@find . -name *.gemspec -exec sed $(SED_OPTS) "s/\('rails_event_store-rspec', \)\(.*\)/\1'= $(RES_VERSION)'/" {} \;
-	@git add -A **/*.gemspec **/version.rb RES_VERSION
+	@find . -path ./contrib -prune -o -name version.rb -exec sed $(SED_OPTS) "s/\(VERSION = \)\(.*\)/\1\"$(RES_VERSION)\"/" {} \;
+	@find . -path ./contrib -prune -o -name *.gemspec -exec sed $(SED_OPTS) "s/\('ruby_event_store', \)\(.*\)/\1'= $(RES_VERSION)'/" {} \;
+	@find . -path ./contrib -prune -o -name *.gemspec -exec sed $(SED_OPTS) "s/\('ruby_event_store-browser', \)\(.*\)/\1'= $(RES_VERSION)'/" {} \;
+	@find . -path ./contrib -prune -o -name *.gemspec -exec sed $(SED_OPTS) "s/\('ruby_event_store-rom', \)\(.*\)/\1'= $(RES_VERSION)'/" {} \;
+	@find . -path ./contrib -prune -o -name *.gemspec -exec sed $(SED_OPTS) "s/\('rails_event_store_active_record', \)\(.*\)/\1'= $(RES_VERSION)'/" {} \;
+	@find . -path ./contrib -prune -o -name *.gemspec -exec sed $(SED_OPTS) "s/\('aggregate_root', \)\(.*\)/\1'= $(RES_VERSION)'/" {} \;
+	@find . -path ./contrib -prune -o -name *.gemspec -exec sed $(SED_OPTS) "s/\('bounded_context', \)\(.*\)/\1'= $(RES_VERSION)'/" {} \;
+	@find . -path ./contrib -prune -o -name *.gemspec -exec sed $(SED_OPTS) "s/\('rails_event_store', \)\(.*\)/\1'= $(RES_VERSION)'/" {} \;
+	@find . -path ./contrib -prune -o -name *.gemspec -exec sed $(SED_OPTS) "s/\('rails_event_store-rspec', \)\(.*\)/\1'= $(RES_VERSION)'/" {} \;
+	@sed $(SED_OPTS) "s/\(gem 'rails_event_store', '~>\)\(.*\)/\1 $(RES_VERSION)'/" APP_TEMPLATE
+	@sed $(SED_OPTS) "s/compare\/v.*\.\.\.master/compare\/v$(RES_VERSION)...master/" RELEASE.md
+	@git add -A **/*.gemspec **/version.rb RES_VERSION APP_TEMPLATE RELEASE.md
 	@git commit -m "Version v$(RES_VERSION)"
 
 install: $(addprefix install-, $(GEMS)) ## Install all dependencies
@@ -81,6 +84,8 @@ reinstall: $(addprefix reinstall-, $(GEMS)) ## Reinstall (with new resolve) depe
 test: $(addprefix test-, $(GEMS)) ## Run all unit tests
 
 mutate: $(addprefix mutate-, $(GEMS)) ## Run all mutation tests
+
+mutate-changes: $(addprefix mutate-changes-, $(GEMS)) ## Run mutation tests for all changes since origin/HEAD
 
 build: $(addprefix build-, $(GEMS)) ## Build all gem packages
 
@@ -97,8 +102,4 @@ rebase: git-rebase-from-upstream
 	@echo "  origin/master   at $(ORIGIN_REV)"
 	@echo "  current branch  at $(CURRENT_REV)"
 
-help:
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
-
-.PHONY: help
-.DEFAULT_GOAL := help
+include support/make/help.mk

@@ -1,4 +1,4 @@
-require 'rspec/matchers/built_in/base_matcher'
+# frozen_string_literal: true
 
 module RailsEventStore
   module RSpec

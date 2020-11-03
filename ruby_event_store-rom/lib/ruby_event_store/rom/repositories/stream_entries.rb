@@ -1,35 +1,28 @@
+# frozen_string_literal: true
+
 require_relative '../mappers/stream_entry_to_serialized_record'
+require_relative '../changesets/create_stream_entries'
 
 module RubyEventStore
   module ROM
     module Repositories
       class StreamEntries < ::ROM::Repository[:stream_entries]
-        class Create < ::ROM::Changeset::Create
-          map do |tuple|
-            Hash(created_at: Time.now).merge(tuple)
-          end
-        end
+        POSITION_SHIFT = 1
 
-        POSITION_SHIFT = 1.freeze
-
-        def create_changeset(event_ids, stream, resolved_version, global_stream: nil)
+        def create_changeset(event_ids, stream, resolved_version)
           tuples = []
 
           event_ids.each_with_index do |event_id, index|
-            tuples << {
-              stream: stream.name,
-              position: resolved_version && resolved_version + index + POSITION_SHIFT,
-              event_id: event_id
-             } unless stream.global?
-
-             tuples << {
-              stream: stream_entries.class::SERIALIZED_GLOBAL_STREAM_NAME,
-              position: nil,
-              event_id: event_id
-            } if global_stream
+            unless stream.global?
+              tuples << {
+                stream: stream.name,
+                position: resolved_version && resolved_version + index + POSITION_SHIFT,
+                event_id: event_id
+              }
+            end
           end
 
-          stream_entries.changeset(Create, tuples)
+          stream_entries.create_changeset(tuples)
         end
 
         def delete(stream)
@@ -37,14 +30,13 @@ module RubyEventStore
         end
 
         def resolve_version(stream, expected_version)
-          expected_version.resolve_for(stream, ->(_stream) {
+          expected_version.resolve_for(stream, lambda { |_stream|
             (stream_entries.max_position(stream) || {})[:position]
           })
         end
 
         def streams_of(event_id)
-          stream_entries.by_event_id(event_id).map{|e| e[:stream]}
-            .reject{|s| s == stream_entries.class::SERIALIZED_GLOBAL_STREAM_NAME}
+          stream_entries.by_event_id(event_id).map { |e| e[:stream] }
         end
       end
     end

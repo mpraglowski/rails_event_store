@@ -5,18 +5,18 @@ module RubyEventStore
     it "should handle metadata timestamp" do
       dummy_event = DummyEvent.new
       event_store.publish(dummy_event, stream_name: "dummy")
-      response = test_client.get "/streams/all"
+      response = test_client.get "/api/streams/all/relationships/events"
       expect(response).to be_ok
 
       metadata = JSON.parse(response.body)["data"][0]["attributes"]["metadata"]
-      expect(metadata["timestamp"]).to eq(skip_fractional(dummy_event.metadata[:timestamp]).iso8601(3))
+      expect(metadata["timestamp"]).to eq(dummy_event.metadata[:timestamp].iso8601(TIMESTAMP_PRECISION))
+      expect(metadata["valid_at"]).to eq(dummy_event.metadata[:valid_at].iso8601(TIMESTAMP_PRECISION))
     end
 
     let(:test_client) { TestClient.new(app_builder(event_store)) }
     let(:event_store) do
       RubyEventStore::Client.new(
-        repository: RubyEventStore::InMemoryRepository.new,
-        mapper: RubyEventStore::Mappers::Default.new(serializer: JSON)
+        repository: RubyEventStore::InMemoryRepository.new(serializer: JSON),
       )
     end
 
@@ -25,10 +25,6 @@ module RubyEventStore
         event_store_locator: -> { event_store },
         host: 'http://www.example.com'
       )
-    end
-
-    def skip_fractional(time)
-      Time.utc(time.year, time.month, time.day, time.hour, time.min, time.sec)
     end
   end
 end

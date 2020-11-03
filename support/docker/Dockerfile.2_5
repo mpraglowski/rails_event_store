@@ -1,0 +1,2 @@
+FROM circleci/ruby:2.5-buster-node-browsers
+USER root

@@ -4,11 +4,11 @@ require 'ruby_event_store/spec/dispatcher_lint'
 module RubyEventStore
   RSpec.describe ComposedDispatcher do
     skippy_dispatcher = Class.new do
-      def call(subscriber, event, serialized_event)
+      def call(_subscriber, _event, _record)
         @called = true
       end
 
-      def verify(subscriber)
+      def verify(_subscriber)
         false
       end
       attr_reader :called
@@ -16,11 +16,11 @@ module RubyEventStore
     it_behaves_like :dispatcher, skippy_dispatcher.new
 
     real_dispatcher = Class.new do
-      def call(subscriber, event, serialized_event)
+      def call(_subscriber, _event, _record)
         @called = true
       end
 
-      def verify(subscriber)
+      def verify(_subscriber)
         true
       end
       attr_reader :called
@@ -60,13 +60,13 @@ module RubyEventStore
         dispatcher = spy
         composed_dispatcher = ComposedDispatcher.new(dispatcher)
         event = instance_double(::RubyEventStore::Event)
-        serialized_event = instance_double(::RubyEventStore::SerializedRecord)
+        record = instance_double(::RubyEventStore::Record)
         subscriber = double
 
-        composed_dispatcher.call(subscriber, event, serialized_event)
+        composed_dispatcher.call(subscriber, event, record)
 
         expect(dispatcher).to have_received(:verify).with(subscriber)
-        expect(dispatcher).to have_received(:call).with(subscriber, event, serialized_event)
+        expect(dispatcher).to have_received(:call).with(subscriber, event, record)
       end
 
       specify "calls only verified dispatcher" do
@@ -74,10 +74,10 @@ module RubyEventStore
         real = real_dispatcher.new
         composed_dispatcher = ComposedDispatcher.new(skippy, real)
         event = instance_double(::RubyEventStore::Event)
-        serialized_event = instance_double(::RubyEventStore::SerializedRecord)
+        record = instance_double(::RubyEventStore::Record)
         subscriber = double
 
-        composed_dispatcher.call(subscriber, event, serialized_event)
+        composed_dispatcher.call(subscriber, event, record)
 
         expect(skippy.called).to be_falsey
         expect(real.called).to be_truthy
@@ -88,10 +88,10 @@ module RubyEventStore
         real2 = real_dispatcher.new
         composed_dispatcher = ComposedDispatcher.new(real1, real2)
         event = instance_double(::RubyEventStore::Event)
-        serialized_event = instance_double(::RubyEventStore::SerializedRecord)
+        record = instance_double(::RubyEventStore::Record)
         subscriber = double
 
-        composed_dispatcher.call(subscriber, event, serialized_event)
+        composed_dispatcher.call(subscriber, event, record)
 
         expect(real1.called).to be_truthy
         expect(real2.called).to be_falsey

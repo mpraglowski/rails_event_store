@@ -9,11 +9,7 @@
     <title><%= current_page.data.title %></title>
     <link rel="stylesheet" href="https://use.typekit.net/iox0vwx.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/docsearch.js@2/dist/cdn/docsearch.min.css" />
-    <% if config[:mode] == :server %>
-      <%= javascript_include_tag "http://localhost:8080/javascripts/all.js" %>
-    <% else %>
-      <%= stylesheet_link_tag :all %>
-    <% end %>
+    <%= stylesheet_link_tag :index %>
     <link rel="icon" type="image/png" href="/images/favicons/res-rubies-16x16.png" sizes="16x16">
     <link rel="icon" type="image/png" href="/images/favicons/res-rubies-32x32.png" sizes="32x32">
     <link rel="icon" type="image/png" href="/images/favicons/res-rubies-96x96.png" sizes="96x96">
@@ -25,7 +21,7 @@
     <link rel="apple-touch-icon" sizes="167x167" href="/images/favicons/res-rubies-167x167.png">
   </head>
 
-  <body class="font-sans text-grey-darkest antialiased">
+  <body class="font-sans text-gray-800 antialiased">
     <div class="frame">
       <header class="frame__header">
         <div class="container mx-auto">
@@ -41,7 +37,9 @@
         </div>
       </footer>
     </div>
-    <%= javascript_include_tag :all %>
+    <% unless config[:mode] == :server %>
+      <%= javascript_include_tag :index %>
+    <% end %>
     <%= partial "partials/tracking" %>
   </body>
 </html>

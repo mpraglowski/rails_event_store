@@ -1,11 +1,22 @@
+# frozen_string_literal: true
+
+require 'active_job'
+
 module RailsEventStore
   class ActiveJobScheduler
-    def call(klass, serialized_event)
-      klass.perform_later(serialized_event.to_h)
+    def initialize(serializer:)
+      @serializer = serializer
+    end
+
+    def call(klass, record)
+      klass.perform_later(record.serialize(serializer).to_h)
     end
 
     def verify(subscriber)
       Class === subscriber && !!(subscriber < ActiveJob::Base)
     end
+
+    private
+    attr_reader :serializer
   end
 end

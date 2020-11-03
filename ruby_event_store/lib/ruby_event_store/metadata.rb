@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require 'date'
 require 'time'
 require 'forwardable'
@@ -43,7 +45,7 @@ module RubyEventStore
     private
 
     def allowed_types
-      [String, Integer, Float, Date, Time, TrueClass, FalseClass, nil]
+      [String, Integer, Float, Date, Time, TrueClass, FalseClass, nil, Hash, Array]
     end
 
     private_constant :SAFE_HASH_METHODS
