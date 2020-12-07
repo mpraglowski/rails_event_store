@@ -4,12 +4,14 @@ gemspec
 
 eval_gemfile File.expand_path('../support/bundler/Gemfile.shared', __dir__)
 
-gem 'rails_event_store', path: '../rails_event_store'
-gem 'rails_event_store_active_record', path: '../rails_event_store_active_record'
 gem 'ruby_event_store', path: '../ruby_event_store'
 gem 'ruby_event_store-browser', path: '../ruby_event_store-browser'
+gem 'rails_event_store_active_record', path: '../rails_event_store_active_record'
 gem 'aggregate_root', path: '../aggregate_root'
 gem 'bounded_context', path: '../bounded_context'
-gem 'rails', '6.0.3.4'
-
-gem 'diff-lcs', '= 1.3.0'
+gem 'protobuf_nested_struct'
+gem 'sidekiq'
+gem 'rack-test'
+gem 'google-protobuf', '~> 3.12.2', '>= 3.12.2'
+gem 'rails', '5.0.7.2'
+gem 'sqlite3', '1.3.13'

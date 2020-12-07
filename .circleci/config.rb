@@ -27,12 +27,6 @@ DATATYPE_GEMS = %w[
   ruby_event_store-rom
 ]
 
-RAILS_VERSIONS = {
-  "5.2" => "5.2.4.4",
-  "5.1" => "5.1.7",
-  "5.0" => "5.0.7.2",
-}
-
 DATABASE_URLS = {
   "mysql" => "mysql2://root:secret@127.0.0.1/rails_event_store?pool=5",
   "postgres" => "postgres://postgres:secret@localhost/rails_event_store?pool=5"
@@ -104,7 +98,12 @@ def Job(name, docker, steps)
 end
 
 def GemJob(task, docker, gem_name, name)
-  Job(name, docker, ["checkout", Run("make -C #{gem_name} install #{task}")])
+  Job(name, docker, [
+    "checkout", 
+    Run("gem update --system"),
+    Run("gem install bundler"),
+    Run("make -C #{gem_name} install #{task}"),
+  ])
 end
 
 def JobName(task, ruby_version)
@@ -207,7 +206,7 @@ rails_5_0_compat =
     RAILS_GEMS,
     Test(
       "rails_5_0",
-      Ruby("2.7", "RAILS_VERSION" => RAILS_VERSIONS["5.0"])
+      Ruby("2.7", "BUNDLE_GEMFILE" => "Gemfile.rails_5_0")
     )
   )
 rails_5_1_compat =
@@ -215,7 +214,7 @@ rails_5_1_compat =
     RAILS_GEMS,
     Test(
       "rails_5_1",
-      Ruby("2.7", "RAILS_VERSION" => RAILS_VERSIONS["5.1"])
+      Ruby("2.7", "BUNDLE_GEMFILE" => "Gemfile.rails_5_1")
     )
   )
 rails_5_2_compat =
@@ -223,7 +222,7 @@ rails_5_2_compat =
     RAILS_GEMS,
     Test(
       "rails_5_2",
-      Ruby("2.7", "RAILS_VERSION" => RAILS_VERSIONS["5.2"])
+      Ruby("2.7", "BUNDLE_GEMFILE" => "Gemfile.rails_5_2")
     )
   )
 mysql_5_compat =
