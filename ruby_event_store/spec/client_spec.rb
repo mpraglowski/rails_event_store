@@ -363,30 +363,6 @@ module RubyEventStore
       expect(subscriber.handled_events).to be_empty
     end
 
-    specify 'can handle protobuf event class instead of RubyEventStore::Event' do
-      begin
-        require_relative 'mappers/events_pb.rb'
-
-        client = RubyEventStore::Client.new(
-          mapper: RubyEventStore::Mappers::Protobuf.new,
-          repository: InMemoryRepository.new
-        )
-        event = RubyEventStore::Proto.new(
-          event_id: "f90b8848-e478-47fe-9b4a-9f2a1d53622b",
-          data: ResTesting::OrderCreated.new(
-            customer_id: 123,
-            order_id: "K3THNX9",
-          )
-        )
-        client.publish(event, stream_name: 'test')
-
-        expect(client.read.event!(event.event_id)).to eq(event)
-        expect(client.read.stream("test").to_a).to eq([event])
-      rescue LoadError => exc
-        skip if exc.message == "cannot load such file -- google/protobuf_c"
-      end
-    end
-
     specify 'raise exception if stream name is incorrect' do
       expect { client.read.stream(nil).limit(100).to_a }.to raise_error(IncorrectStreamData)
       expect { client.read.stream("").limit(100).to_a }.to raise_error(IncorrectStreamData)
@@ -814,42 +790,6 @@ module RubyEventStore
       expect(client.deserialize(serializer: YAML, **payload)).to eq(event)
     end
 
-    specify 'can load serialized event using Protobuf mapper' do
-      begin
-        require_relative 'mappers/events_pb.rb'
-
-        client = RubyEventStore::Client.new(
-          mapper: RubyEventStore::Mappers::Protobuf.new,
-          repository: InMemoryRepository.new
-        )
-        event = TimeEnrichment.with(
-          RubyEventStore::Proto.new(
-            event_id: "f90b8848-e478-47fe-9b4a-9f2a1d53622b",
-            data: ResTesting::OrderCreated.new(
-              customer_id: 123,
-              order_id: "K3THNX9",
-            ),
-            metadata: {
-              time: Time.new(2018, 12, 13, 11),
-            }
-          ),
-          timestamp: Time.utc(2019, 9, 30),
-          valid_at: Time.utc(2019, 9, 30)
-        )
-        payload = {
-          event_type: "res_testing.OrderCreated",
-          event_id: "f90b8848-e478-47fe-9b4a-9f2a1d53622b",
-          data: "\n\aK3THNX9\x10{",
-          metadata: "\n\x10\n\x04time\x12\b:\x06\b\xA0\xDB\xC8\xE0\x05",
-          timestamp:  "2019-09-30T00:00:00.000000Z",
-          valid_at:   "2019-09-30T00:00:00.000000Z"
-        }
-        expect(client.deserialize(serializer: NULL, **payload)).to eq(event)
-      rescue LoadError => exc
-        skip if exc.message == "cannot load such file -- google/protobuf_c"
-      end
-    end
-
     specify 'raise error when no subscriber' do
       expect { client.subscribe(nil, to: [])}.to raise_error(RubyEventStore::SubscriberNotExist)
       expect { client.subscribe_to_all_events(nil)}.to raise_error(RubyEventStore::SubscriberNotExist)
@@ -922,6 +862,38 @@ module RubyEventStore
       end
     end
 
+    describe "#subscribers_for" do
+      specify do
+        handler = Subscribers::ValidHandler.new
+        client.subscribe(handler, to: [ProductAdded])
+        block = Proc.new { "Event published!" }
+        client.subscribe(to: [OrderCreated], &block)
+
+        expect(client.subscribers_for(ProductAdded)).to   eq [handler]
+        expect(client.subscribers_for("ProductAdded")).to eq [handler]
+        expect(client.subscribers_for(OrderCreated)).to   eq [block]
+      end
+
+      specify do
+        event_klass = Class.new do
+          def self.event_type
+            "non-derived-from-class"
+          end
+        end
+
+        subscriptions =
+          Subscriptions.new(event_type_resolver: ->(klass) { klass.event_type })
+        client = RubyEventStore::Client.new(
+          repository: InMemoryRepository.new,
+          mapper: Mappers::NullMapper.new,
+          subscriptions: subscriptions,
+        )
+        client.subscribe(handler = Proc.new {}, to: [event_klass])
+
+        expect(client.subscribers_for(event_klass)).to eq [handler]
+      end
+    end
+
     specify "#inspect" do
       object_id = client.object_id.to_s(16)
       expect(client.inspect).to eq("#<RubyEventStore::Client:0x#{object_id}>")
@@ -965,6 +937,44 @@ module RubyEventStore
         expect(event.event_id).to eq(uuid)
       end
       client.publish(OrderCreated.new(event_id: uuid))
+    end
+
+    specify "publishing with custom event class where type is not derived from class name" do
+      listener = Class.new do
+        def initialize;  @queue = Queue.new; end
+        def call(event); @queue.push(event); end
+        def value; Timeout.timeout(1, RuntimeError, "did not receive an event") { @queue.pop }; end
+      end.new
+
+      event_klass = Class.new do
+        def initialize
+          @data     = {}
+          @metadata = {}
+        end
+        def self.event_type
+          "custom.event.type"
+        end
+        attr_reader :data, :metadata
+        def event_type; self.class.event_type; end
+        def event_id;   "8d69cc2b-c6c5-4494-99f6-954c7f583477"; end
+      end
+
+      client = Client.new(
+        repository: InMemoryRepository.new,
+        subscriptions: Subscriptions.new(event_type_resolver: ->(klass){ klass.event_type })
+      )
+      client.subscribe(listener, to: [event_klass])
+      client.publish(event_klass.new)
+      event = listener.value
+      expect(event.event_id).to eq("8d69cc2b-c6c5-4494-99f6-954c7f583477")
+    end
+
+    describe "#position_in_stream" do
+      specify do
+        client.publish(fact0 = OrderCreated.new, expected_version: :auto, stream_name: "SomeStream")
+
+        expect(client.position_in_stream(fact0.event_id, "SomeStream")).to eq(0)
+      end
     end
   end
 end

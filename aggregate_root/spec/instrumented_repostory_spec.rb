@@ -3,13 +3,45 @@
 require 'spec_helper'
 require 'active_support/notifications'
 
+
 module AggregateRoot
   RSpec.describe InstrumentedRepository do
+    let(:order_klass) do
+      Class.new do
+        include AggregateRoot
+
+        def initialize(uuid)
+          @status = :draft
+          @uuid   = uuid
+        end
+
+        def create
+          apply Orders::Events::OrderCreated.new
+        end
+
+        def expire
+          apply Orders::Events::OrderExpired.new
+        end
+
+        attr_accessor :status
+
+        private
+
+        def apply_order_created(_event)
+          @status = :created
+        end
+
+        def apply_order_expired(_event)
+          @status = :expired
+        end
+      end
+    end
+
     describe "#load" do
       specify "wraps around original implementation" do
         repository = instance_double(Repository)
         instrumented_repository = InstrumentedRepository.new(repository, ActiveSupport::Notifications)
-        aggregate = Order.new(SecureRandom.uuid)
+        aggregate = order_klass.new(SecureRandom.uuid)
 
         expect(repository).to receive(:load).with(aggregate, 'SomeStream')
         instrumented_repository.load(aggregate, 'SomeStream')
@@ -19,7 +51,7 @@ module AggregateRoot
         repository = instance_double(Repository)
         instrumented_repository = InstrumentedRepository.new(repository, ActiveSupport::Notifications)
         subscribe_to("load.repository.aggregate_root") do |notification_calls|
-          aggregate = Order.new(SecureRandom.uuid)
+          aggregate = order_klass.new(SecureRandom.uuid)
 
           expect(repository).to receive(:load).with(aggregate, 'SomeStream')
           instrumented_repository.load(aggregate, 'SomeStream')
@@ -38,7 +70,7 @@ module AggregateRoot
       specify "wraps around original implementation" do
         repository = instance_double(Repository)
         instrumented_repository = InstrumentedRepository.new(repository, ActiveSupport::Notifications)
-        aggregate = Order.new(SecureRandom.uuid)
+        aggregate = order_klass.new(SecureRandom.uuid)
 
         expect(repository).to receive(:store).with(aggregate, 'SomeStream')
         instrumented_repository.store(aggregate, 'SomeStream')
@@ -48,7 +80,7 @@ module AggregateRoot
         repository = instance_double(Repository)
         instrumented_repository = InstrumentedRepository.new(repository, ActiveSupport::Notifications)
         subscribe_to("store.repository.aggregate_root") do |notification_calls|
-          aggregate = Order.new(SecureRandom.uuid)
+          aggregate = order_klass.new(SecureRandom.uuid)
           aggregate.create
           aggregate.expire
           events = aggregate.unpublished_events.to_a
@@ -73,7 +105,7 @@ module AggregateRoot
         repository = instance_double(Repository)
         instrumented_repository = InstrumentedRepository.new(repository, ActiveSupport::Notifications)
         subscribe_to("load.repository.aggregate_root") do |load_notification_calls|
-          aggregate = Order.new(SecureRandom.uuid)
+          aggregate = order_klass.new(SecureRandom.uuid)
 
           subscribe_to("store.repository.aggregate_root") do |store_notification_calls|
             events = nil
@@ -104,6 +136,28 @@ module AggregateRoot
           )
         end
       end
+    end
+
+    specify "method unknown by instrumentation but known by repository" do
+      some_repository = double("Some repository", custom_method: 42)
+      instrumented_repository = InstrumentedRepository.new(some_repository, ActiveSupport::Notifications)
+      block = -> { "block" }
+      instrumented_repository.custom_method("arg", keyword: "keyarg", &block)
+
+      expect(instrumented_repository).to respond_to(:custom_method)
+      expect(some_repository).to have_received(:custom_method).with("arg", keyword: "keyarg") do |&received_block|
+        expect(received_block).to be(block)
+      end
+    end
+
+    specify "method unknown by instrumentation and unknown by repository" do
+      some_repository = instance_double(Repository)
+      instrumented_repository = InstrumentedRepository.new(some_repository, ActiveSupport::Notifications)
+
+      expect(instrumented_repository).not_to respond_to(:arbitrary_method_name)
+      expect do
+        instrumented_repository.arbitrary_method_name
+      end.to raise_error(NoMethodError, /undefined method `arbitrary_method_name' for #<AggregateRoot::InstrumentedRepository:/)
     end
 
     def subscribe_to(name)

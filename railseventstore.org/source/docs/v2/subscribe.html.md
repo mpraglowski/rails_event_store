@@ -37,7 +37,7 @@ unsubscribe = event_store.subscribe(InvoiceReadModel.new, to: [InvoiceCreated, I
 
 and then execute returned lambda both subscriptions will be removed.
 
-It you need temporary subscription to be defined [read more here](/docs/v1/subscribe/#temporary-subscriptions).
+It you need temporary subscription to be defined [read more here](/docs/v2/subscribe/#temporary-subscriptions).
 
 
 ## Synchronous handlers
@@ -194,7 +194,7 @@ end
 
 ## Subscribe for all event types
 
-You can also subscribe for all event types at once. It is especially useful for logging or debugging events. Use `subscribe_to_all_events(subsriber1, to:, &subscriber2)` method for that.
+You can also subscribe for all event types at once. It is especially useful for logging or debugging events. Use `subscribe_to_all_events(subsriber1, &subscriber2)` method for that.
 
 ```ruby
 class EventsLogger
@@ -312,7 +312,7 @@ Then you have to initialize `RailsEventStore::Client` using asynchronous dispatc
 
 ```ruby
 event_store = RailsEventStore::Client.new(
-  dispatcher: RubyEventStore::ImmediateAsyncDispatcher.new(scheduler: CustomScheduler.new)
+  dispatcher: RailsEventStore::AfterCommitAsyncDispatcher.new(scheduler: CustomScheduler.new)
 )
 ```
 
@@ -321,7 +321,7 @@ Often you will want to be able to specify both asynchronous and synchronous disp
 ```ruby
 event_store = RailsEventStore::Client.new(
   dispatcher: RubyEventStore::ComposedDispatcher.new(
-    RubyEventStore::ImmediateAsyncDispatcher.new(scheduler: CustomScheduler.new), # our asynchronous dispatcher, which expects that subscriber respond to `perform_async` method
+    RailsEventStore::AfterCommitAsyncDispatcher.new(scheduler: CustomScheduler.new), # our asynchronous dispatcher, which expects that subscriber respond to `perform_async` method
     RubyEventStore::Dispatcher.new # regular synchronous dispatcher
   )
 )

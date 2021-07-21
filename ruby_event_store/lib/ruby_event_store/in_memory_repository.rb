@@ -3,38 +3,58 @@
 require 'ostruct'
 module RubyEventStore
   class InMemoryRepository
+    class EventInStream
+      def initialize(event_id, position)
+        @event_id = event_id
+        @position = position
+      end
+
+      attr_reader :event_id, :position
+    end
+
+    class EventRecord
+      def initialize(global_position, record)
+        @global_position = global_position
+        @record = record
+      end
+
+      attr_reader :global_position
+      attr_accessor :record
+    end
 
     def initialize(serializer: NULL)
       @serializer = serializer
       @streams = Hash.new { |h, k| h[k] = Array.new }
       @mutex   = Mutex.new
       @storage = Hash.new
+      @next_global_position = 1
     end
 
     def append_to_stream(records, stream, expected_version)
-      serialized_records = Array(records).map{ |record| record.serialize(serializer) }
+      serialized_records = records.map { |record| record.serialize(serializer) }
 
       with_synchronize(expected_version, stream) do |resolved_version|
-        raise WrongExpectedEventVersion unless last_stream_version(stream).equal?(resolved_version)
+        raise WrongExpectedEventVersion unless resolved_version.nil? || last_stream_version(stream).equal?(resolved_version)
 
-        serialized_records.each do |serialized_record|
+        serialized_records.each_with_index do |serialized_record, index|
           raise EventDuplicatedInStream if has_event?(serialized_record.event_id)
-          storage[serialized_record.event_id] = serialized_record
-          streams[stream.name] << serialized_record.event_id
+          storage[serialized_record.event_id] = EventRecord.new(next_global_position, serialized_record)
+          @next_global_position += 1
+          add_to_stream(stream, serialized_record, resolved_version, index)
         end
       end
       self
     end
 
     def link_to_stream(event_ids, stream, expected_version)
-      serialized_records = Array(event_ids).map { |id| read_event(id) }
+      serialized_records = event_ids.map { |id| read_event(id) }
 
       with_synchronize(expected_version, stream) do |resolved_version|
-        raise WrongExpectedEventVersion unless last_stream_version(stream).equal?(resolved_version)
+        raise WrongExpectedEventVersion unless resolved_version.nil? || last_stream_version(stream).equal?(resolved_version)
 
-        serialized_records.each do |serialized_record|
+        serialized_records.each_with_index do |serialized_record, index|
           raise EventDuplicatedInStream if has_event_in_stream?(serialized_record.event_id, stream.name)
-          streams[stream.name] << serialized_record.event_id
+          add_to_stream(stream, serialized_record, resolved_version, index)
         end
       end
       self
@@ -50,7 +70,7 @@ module RubyEventStore
 
     def last_stream_event(stream)
       last_id = event_ids_of_stream(stream).last
-      storage.fetch(last_id).deserialize(serializer) if last_id
+      storage.fetch(last_id).record.deserialize(serializer) if last_id
     end
 
     def read(spec)
@@ -60,7 +80,7 @@ module RubyEventStore
           serialized_records
             .drop(offset)
             .take(limit)
-            .map{|serialized_record| serialized_record.deserialize(serializer) }
+            .map { |serialized_record| serialized_record.deserialize(serializer) }
         end
         BatchEnumerator.new(spec.batch_size, serialized_records.size, batch_reader).each
       elsif spec.first?
@@ -89,10 +109,10 @@ module RubyEventStore
             event_type: record.event_type,
             data:       record.data,
             metadata:   record.metadata,
-            timestamp:  Time.iso8601(storage.fetch(record.event_id).timestamp),
+            timestamp:  Time.iso8601(storage.fetch(record.event_id).record.timestamp),
             valid_at:   record.valid_at,
           ).serialize(serializer)
-        storage[record.event_id] = serialized_record
+        storage.fetch(record.event_id).record = serialized_record
       end
     end
 
@@ -100,6 +120,16 @@ module RubyEventStore
       streams
         .select { |name,| has_event_in_stream?(event_id, name) }
         .map    { |name,| Stream.new(name) }
+    end
+
+    def position_in_stream(event_id, stream)
+      event_in_stream = streams[stream.name].find {|event_in_stream| event_in_stream.event_id.eql?(event_id) }
+      raise EventNotFoundInStream if event_in_stream.nil?
+      event_in_stream.position
+    end
+
+    def global_position(event_id)
+      storage.fetch(event_id) { raise EventNotFound.new(event_id) }.global_position
     end
 
     private
@@ -120,15 +150,15 @@ module RubyEventStore
     end
 
     def read_event(event_id)
-      storage.fetch(event_id) { raise EventNotFound.new(event_id) }
+      storage.fetch(event_id) { raise EventNotFound.new(event_id) }.record
     end
 
     def event_ids_of_stream(stream)
-      streams.fetch(stream.name, Array.new)
+      streams.fetch(stream.name, Array.new).map(&:event_id)
     end
 
     def serialized_records_of_stream(stream)
-      stream.global? ? storage.values : storage.fetch_values(*event_ids_of_stream(stream))
+      (stream.global? ? storage.values : storage.fetch_values(*event_ids_of_stream(stream))).map(&:record)
     end
 
     def ordered(serialized_records, spec)
@@ -158,19 +188,28 @@ module RubyEventStore
       # not for the whole read+write algorithm.
       Thread.pass
       mutex.synchronize do
-        resolved_version = last_stream_version(stream) if expected_version.any?
         block.call(resolved_version)
       end
     end
 
     def has_event_in_stream?(event_id, stream_name)
-      streams.fetch(stream_name, Array.new).any? { |id| id.eql?(event_id) }
+      streams.fetch(stream_name, Array.new).any? { |event_in_stream| event_in_stream.event_id.eql?(event_id) }
     end
 
     def index_of(source, event_id)
       source.index {|item| item.event_id.eql?(event_id)}
     end
 
-    attr_reader :streams, :mutex, :storage, :serializer
+    def compute_position(resolved_version, index)
+      unless resolved_version.nil?
+        resolved_version + index + 1
+      end
+    end
+
+    def add_to_stream(stream, serialized_record, resolved_version, index)
+      streams[stream.name] << EventInStream.new(serialized_record.event_id, compute_position(resolved_version, index))
+    end
+
+    attr_reader :streams, :mutex, :storage, :serializer, :next_global_position
   end
 end

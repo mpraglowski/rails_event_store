@@ -1,8 +1,4 @@
 module.exports = {
-  future: {
-    // removeDeprecatedGapUtilities: true,
-    // purgeLayersByDefault: true,
-  },
   purge: [
     './source/**/*.html',
     './source/*.html',
@@ -10,6 +6,7 @@ module.exports = {
     './source/*.md',
     './source/**/*.erb',
     './source/*.erb',
+    './config.rb'
   ],
   theme: {
     extend: {},

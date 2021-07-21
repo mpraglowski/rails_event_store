@@ -5,24 +5,37 @@ module RubyEventStore
     module Transformation
       class DomainEvent
         def dump(domain_event)
+          metadata  = domain_event.metadata.dup.to_h
+          timestamp = metadata.delete(:timestamp)
+          valid_at  = metadata.delete(:valid_at)
           Record.new(
             event_id:   domain_event.event_id,
-            metadata:   domain_event.metadata.to_h.reject { |k,| [:timestamp, :valid_at].include?(k) },
+            metadata:   metadata,
             data:       domain_event.data,
             event_type: domain_event.event_type,
-            timestamp:  domain_event.timestamp,
-            valid_at:   domain_event.valid_at,
+            timestamp:  timestamp,
+            valid_at:   valid_at,
           )
         end
 
         def load(record)
           Object.const_get(record.event_type).new(
             event_id: record.event_id,
+            data:     record.data,
             metadata: record.metadata.merge(
               timestamp: record.timestamp,
-              valid_at: record.valid_at,
+              valid_at:  record.valid_at,
             ),
+          )
+        rescue NameError
+          Event.new(
+            event_id: record.event_id,
             data:     record.data,
+            metadata: record.metadata.merge(
+              timestamp:  record.timestamp,
+              valid_at:   record.valid_at,
+              event_type: record.event_type,
+            ),
           )
         end
       end

@@ -5,22 +5,69 @@ require "ruby_event_store/outbox/metrics/null"
 require "ruby_event_store/outbox/metrics/influx"
 require_relative '../../../support/helpers/rspec_defaults'
 require_relative '../../../support/helpers/schema_helper'
+require_relative '../../../support/helpers/time_enrichment'
 require_relative './support/db'
 require 'rails'
+require 'active_support/testing/time_helpers.rb'
 
-module TimestampEnrichment
-  def with_timestamp(event, timestamp = Time.now.utc)
-    event.metadata[:timestamp] ||= timestamp
-    event
+RSpec.configure do |config|
+  config.include ActiveSupport::Testing::TimeHelpers
+  config.after(:each) { travel_back }
+  config.before(:each, redis: true) do |example|
+    redis.flushdb
   end
-  module_function :with_timestamp
 end
 
 $verbose = ENV.has_key?('VERBOSE') ? true : false
 ActiveRecord::Schema.verbose = $verbose
 
 ENV['DATABASE_URL'] ||= 'sqlite3::memory:'
-ENV['REDIS_URL'] ||= 'redis://localhost:6379/1'
+
+
+class MutantIdGenerator
+  def initialize(redis_url, value_for_main_pid, name)
+    @main_pid = Process.pid
+    @redis = Redis.new(url: redis_url)
+    @value_for_main_pid = value_for_main_pid
+    @redis_key = "mutant-something-#{name}"
+    @redis.del(@redis_key)
+  end
+
+  def id_for_current_pid
+    pid = Process.pid
+    if pid == @main_pid
+      @value_for_main_pid
+    else
+      get_id_for_pid(pid) || set_id_for_pid(pid)
+    end
+  end
+
+  private
+
+  def get_id_for_pid(pid)
+    position = @redis.lpos(@redis_key, pid)
+    position.nil? ? nil : position + 1
+  end
+
+  def set_id_for_pid(pid)
+    length_of_list_after_push = @redis.rpush(@redis_key, pid)
+    length_of_list_after_push
+  end
+end
+
+RedisMutantIdGenerator = MutantIdGenerator.new("redis://localhost:6379/0", 0, "redis")
+
+module RedisIsolation
+  def self.redis_url
+    ENV["REDIS_URL"] || per_process_redis_url_for_mutant_runs
+  end
+
+  private
+
+  def self.per_process_redis_url_for_mutant_runs
+    "redis://localhost:6379/#{RedisMutantIdGenerator.id_for_current_pid}"
+  end
+end
 
 
 class TickingClock

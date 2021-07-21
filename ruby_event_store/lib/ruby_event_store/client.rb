@@ -13,7 +13,8 @@ module RubyEventStore
 
 
       @repository     = repository
-      @mapper         = Mappers::DeprecatedWrapper.new(mapper)
+      @mapper         = mapper
+      @subscriptions  = subscriptions
       @broker         = Broker.new(subscriptions: subscriptions, dispatcher: dispatcher)
       @clock          = clock
       @metadata       = Concurrent::ThreadLocalVar.new
@@ -23,7 +24,7 @@ module RubyEventStore
 
     # Persists events and notifies subscribed handlers about them
     #
-    # @param events [Array<Event, Proto>, Event, Proto] event(s)
+    # @param events [Array<Event>, Event] event(s)
     # @param stream_name [String] name of the stream for persisting events.
     # @param expected_version [:any, :auto, :none, Integer] controls optimistic locking strategy. {http://railseventstore.org/docs/expected_version/ Read more}
     # @return [self]
@@ -63,7 +64,7 @@ module RubyEventStore
     # @param expected_version (see #publish)
     # @return [self]
     def link(event_ids, stream_name:, expected_version: :any)
-      repository.link_to_stream(event_ids, Stream.new(stream_name), ExpectedVersion.new(expected_version))
+      repository.link_to_stream(Array(event_ids), Stream.new(stream_name), ExpectedVersion.new(expected_version))
       self
     end
 
@@ -91,6 +92,33 @@ module RubyEventStore
     # @return [Array<Stream>] where event is stored or linked
     def streams_of(event_id)
       repository.streams_of(event_id)
+    end
+
+    # Gets position of the event in given stream
+    #
+    # The position is always nonnegative.
+    # Returns nil if the event has no specific position in stream.
+    # Raise error if event is not present in stream.
+    #
+    # @param event_id [String]
+    # @param stream_name [String]
+    # @return [Integer] nonnegative integer position of event in stream
+    # @raise [EventNotInStream]
+    def position_in_stream(event_id, stream_name)
+      repository.position_in_stream(event_id, Stream.new(stream_name))
+    end
+
+    # Gets position of the event in global stream
+    #
+    # The position is always nonnegative.
+    # Global position may have gaps, meaning, there may be event at
+    # position 40, but no event at position 39.
+    #
+    # @param event_id [String]
+    # @raise [EventNotFound]
+    # @return [Integer] nonnegno ative integer position of event in global stream
+    def global_position(event_id)
+      repository.global_position(event_id)
     end
 
     # Subscribes a handler (subscriber) that will be invoked for published events of provided type.
@@ -124,6 +152,14 @@ module RubyEventStore
     def subscribe_to_all_events(subscriber = nil, &proc)
       raise ArgumentError, "subscriber must be first argument or block, cannot be both" if subscriber && proc
       broker.add_global_subscription(subscriber || proc)
+    end
+
+    # Get list of handlers subscribed to an event
+    #
+    # @param to [Class, String] type of events to get list of sybscribed handlers
+    # @return [Array<Object, Class>]
+    def subscribers_for(event_class)
+      subscriptions.all_for(event_type_resolver.call(event_class))
     end
 
     # Builder object for collecting temporary handlers (subscribers)
@@ -227,7 +263,7 @@ module RubyEventStore
     # Deserialize event which was serialized for async event handlers
     # {http://railseventstore.org/docs/subscribe/#async-handlers Read more}
     #
-    # @return [Event, Proto] deserialized event
+    # @return [Event] deserialized event
     def deserialize(serializer:, event_type:, event_id:, data:, metadata:, timestamp: nil, valid_at: nil)
       extract_timestamp = lambda do |m|
         (m[:timestamp] || Time.parse(m.fetch('timestamp'))).iso8601
@@ -280,7 +316,7 @@ module RubyEventStore
     #   end
     #   event_store.overwrite(events)
     #
-    # @param events [Array<Event, Proto>, Event, Proto] event(s) to serialize and overwrite again
+    # @param events [Array<Event>, Event] event(s) to serialize and overwrite again
     # @return [self]
     def overwrite(events_or_event)
       repository.update_messages(transform(Array(events_or_event)))
@@ -319,6 +355,10 @@ module RubyEventStore
 
     protected
 
+    def event_type_resolver
+      subscriptions.event_type_resolver
+    end
+
     def metadata=(value)
       @metadata.value = value
     end
@@ -331,6 +371,6 @@ module RubyEventStore
       ->{ SecureRandom.uuid }
     end
 
-    attr_reader :repository, :mapper, :broker, :clock, :correlation_id_generator
+    attr_reader :repository, :mapper, :subscriptions, :broker, :clock, :correlation_id_generator
   end
 end

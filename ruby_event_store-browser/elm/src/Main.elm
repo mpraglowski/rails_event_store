@@ -5,7 +5,6 @@ import Browser.Navigation
 import Flags exposing (Flags, RawFlags, buildFlags)
 import Html exposing (Html)
 import Layout
-import Maybe exposing (andThen)
 import Page.ShowEvent
 import Page.ShowStream
 import Route
@@ -49,7 +48,7 @@ type Page
 
 
 subscriptions : Model -> Sub Msg
-subscriptions model =
+subscriptions _ =
     Sub.none
 
 

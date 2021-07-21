@@ -2,12 +2,43 @@
 
 require 'spec_helper'
 
+
 RSpec.describe AggregateRoot do
   let(:event_store) { RubyEventStore::Client.new(repository: RubyEventStore::InMemoryRepository.new, mapper: RubyEventStore::Mappers::NullMapper.new) }
   let(:uuid)        { SecureRandom.uuid }
+  let(:order_klass) do
+    Class.new do
+      include AggregateRoot
+
+      def initialize(uuid)
+        @status = :draft
+        @uuid   = uuid
+      end
+
+      def create
+        apply Orders::Events::OrderCreated.new
+      end
+
+      def expire
+        apply Orders::Events::OrderExpired.new
+      end
+
+      attr_accessor :status
+
+      private
+
+      def apply_order_created(_event)
+        @status = :created
+      end
+
+      def apply_order_expired(_event)
+        @status = :expired
+      end
+    end
+  end
 
   it "should have ability to apply event on itself" do
-    order = Order.new(uuid)
+    order = order_klass.new(uuid)
     order_created = Orders::Events::OrderCreated.new
 
     expect(order).to receive(:"apply_order_created").with(order_created).and_call_original
@@ -17,12 +48,12 @@ RSpec.describe AggregateRoot do
   end
 
   it "brand new aggregate does not have any unpublished events" do
-    order = Order.new(uuid)
+    order = order_klass.new(uuid)
     expect(order.unpublished_events.to_a).to be_empty
   end
 
   it "should receive a method call based on a default apply strategy" do
-    order = Order.new(uuid)
+    order = order_klass.new(uuid)
     order_created = Orders::Events::OrderCreated.new
 
     order.apply(order_created)
@@ -30,19 +61,49 @@ RSpec.describe AggregateRoot do
   end
 
   it "should raise error for missing apply method based on a default apply strategy" do
-    order = Order.new(uuid)
+    order = order_klass.new(uuid)
     spanish_inquisition = Orders::Events::SpanishInquisition.new
-    expect { order.apply(spanish_inquisition) }.to raise_error(AggregateRoot::MissingHandler, "Missing handler method apply_spanish_inquisition on aggregate Order")
+    expect { order.apply(spanish_inquisition) }.to raise_error(AggregateRoot::MissingHandler, "Missing handler method apply_spanish_inquisition on aggregate #{order_klass}")
   end
 
   it "should ignore missing apply method based on a default non-strict apply strategy" do
-    order = OrderWithNonStrictApplyStrategy.new
+    klass = Class.new do
+      include AggregateRoot.with_strategy(->{ AggregateRoot::DefaultApplyStrategy.new(strict: false) })
+    end
+    order = klass.new
     spanish_inquisition = Orders::Events::SpanishInquisition.new
     expect { order.apply(spanish_inquisition) }.to_not raise_error
   end
 
   it "should receive a method call based on a custom strategy" do
-    order = OrderWithCustomStrategy.new
+    strategy = -> do
+      ->(aggregate, event) do
+        {
+          'Orders::Events::OrderCreated' => aggregate.method(:custom_created),
+          'Orders::Events::OrderExpired' => aggregate.method(:custom_expired),
+        }.fetch(event.event_type, ->(ev) {}).call(event)
+      end
+    end
+    klass = Class.new do
+      include AggregateRoot.with_strategy(strategy)
+
+      def initialize
+        @status = :draft
+      end
+
+      attr_accessor :status
+
+      private
+
+      def custom_created(_event)
+        @status = :created
+      end
+
+      def custom_expired(_event)
+        @status = :expired
+      end
+    end
+    order = klass.new
     order_created = Orders::Events::OrderCreated.new
 
     order.apply(order_created)
@@ -50,7 +111,7 @@ RSpec.describe AggregateRoot do
   end
 
   it "should return applied events" do
-    order = Order.new(uuid)
+    order = order_klass.new(uuid)
     created = Orders::Events::OrderCreated.new
     expired = Orders::Events::OrderExpired.new
 
@@ -59,7 +120,7 @@ RSpec.describe AggregateRoot do
   end
 
   it "should return only applied events" do
-    order = Order.new(uuid)
+    order = order_klass.new(uuid)
     created = Orders::Events::OrderCreated.new
     order.apply(created)
 
@@ -69,7 +130,7 @@ RSpec.describe AggregateRoot do
   end
 
   it "#unpublished_events method is public" do
-    order = Order.new(uuid)
+    order = order_klass.new(uuid)
     expect(order.unpublished_events.to_a).to eq([])
 
     created = Orders::Events::OrderCreated.new
@@ -82,7 +143,7 @@ RSpec.describe AggregateRoot do
   end
 
   it "#unpublished_events method does not allow modifying internal state directly" do
-    order = Order.new(uuid)
+    order = order_klass.new(uuid)
     expect(order.unpublished_events.respond_to?(:<<)).to eq(false)
     expect(order.unpublished_events.respond_to?(:clear)).to eq(false)
     expect(order.unpublished_events.respond_to?(:push)).to eq(false)
@@ -192,6 +253,101 @@ RSpec.describe AggregateRoot do
           end
         end
       end.to raise_error(ArgumentError, "Anonymous class is missing name")
+    end
+  end
+
+  describe "#initialize" do
+    it "allows default initializer" do
+      aggregate_klass = Class.new do
+        include AggregateRoot
+        def initialize
+          @state = :draft
+        end
+        attr_reader :state
+      end
+
+      aggregate = aggregate_klass.new
+      expect(aggregate.state).to eq(:draft)
+    end
+
+    it "allows initializer with arguments" do
+      aggregate_klass = Class.new do
+        include AggregateRoot
+        def initialize(a, b)
+          @state = a + b
+        end
+        attr_reader :state
+      end
+
+      aggregate = aggregate_klass.new(2,3)
+      expect(aggregate.state).to eq(5)
+    end
+
+    it "allows initializer with keyword arguments" do
+      aggregate_klass = Class.new do
+        include AggregateRoot
+        def initialize(a:, b:)
+          @state = a + b
+        end
+        attr_reader :state
+      end
+
+      aggregate = aggregate_klass.new(a: 2, b: 3)
+      expect(aggregate.state).to eq(5)
+    end
+
+    it "allows initializer with variable arguments" do
+      aggregate_klass = Class.new do
+        include AggregateRoot
+        def initialize(*args)
+          @state = args.reduce(:+)
+        end
+        attr_reader :state
+      end
+
+      aggregate = aggregate_klass.new(1,2,3)
+      expect(aggregate.state).to eq(6)
+    end
+
+    it "allows initializer with variable keyword arguments" do
+      aggregate_klass = Class.new do
+        include AggregateRoot
+        def initialize(**args)
+          @state = args.values.reduce(:+)
+        end
+        attr_reader :state
+      end
+
+      aggregate = aggregate_klass.new(a: 1, b: 2, c: 3)
+      expect(aggregate.state).to eq(6)
+    end
+
+    it "allows initializer with mixed arguments" do
+      aggregate_klass = Class.new do
+        include AggregateRoot
+        def initialize(a, *args, b:, **kwargs)
+          @state = a + b + args.reduce(:+) + kwargs.values.reduce(:+)
+        end
+        attr_reader :state
+      end
+
+      aggregate = aggregate_klass.new(1, 2, 3, b: 4, c: 5, d: 6)
+      expect(aggregate.state).to eq(21)
+    end
+
+    it "allows initializer with block" do
+      aggregate_klass = Class.new do
+        include AggregateRoot
+        def initialize(a, *args, b:, **kwargs, &block)
+          @state = block.call(a + b + args.reduce(:+) + kwargs.values.reduce(:+))
+        end
+        attr_reader :state
+      end
+
+      aggregate = aggregate_klass.new(1, 2, 3, b: 4, c: 5, d: 6) do |val|
+        val * 2
+      end
+      expect(aggregate.state).to eq(42)
     end
   end
 end

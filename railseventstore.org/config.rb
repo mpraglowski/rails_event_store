@@ -53,7 +53,10 @@ activate :external_pipeline,
   latency: 1
 
 set :markdown_engine, :redcarpet
-set :res_version, File.read('../RES_VERSION')
+set :res_version_v1, '1.3.1'
+set :res_version_v2, '2.2.0'
+set :res_version,    '2.2.0'
+
 set :markdown,
   tables: true,
   autolink: true,
@@ -138,4 +141,6 @@ helpers do
 end
 
 page "/", layout: "landing"
-page "/docs/*", layout: "documentation"
+page "/docs/v1/*", layout: "documentation", locals: { version: "v1" }
+page "/docs/v2/*", layout: "documentation", locals: { version: "v2" }
+page "*", locals: { version: "v2" }

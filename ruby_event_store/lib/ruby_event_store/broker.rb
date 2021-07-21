@@ -35,7 +35,7 @@ module RubyEventStore
     end
 
     private
-    attr_reader :subscriptions, :dispatcher
+    attr_reader :dispatcher, :subscriptions
 
     def verify_subscription(subscriber)
       raise SubscriberNotExist, "subscriber must be first argument or block" unless subscriber

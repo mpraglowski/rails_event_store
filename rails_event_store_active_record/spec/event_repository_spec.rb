@@ -55,13 +55,13 @@ module RailsEventStoreActiveRecord
 
     specify "does not confuse all with GLOBAL_STREAM" do
       repository.append_to_stream(
-        RubyEventStore::SRecord.new(event_id: "fbce0b3d-40e3-4d1d-90a1-901f1ded5a4a"),
+        [RubyEventStore::SRecord.new(event_id: "fbce0b3d-40e3-4d1d-90a1-901f1ded5a4a")],
         RubyEventStore::Stream.new('all'),
         RubyEventStore::ExpectedVersion.none
       )
 
       repository.append_to_stream(
-        RubyEventStore::SRecord.new(event_id: "a1b49edb-7636-416f-874a-88f94b859bef"),
+        [RubyEventStore::SRecord.new(event_id: "a1b49edb-7636-416f-874a-88f94b859bef")],
         RubyEventStore::Stream.new(RubyEventStore::GLOBAL_STREAM),
         RubyEventStore::ExpectedVersion.any
       )
@@ -284,46 +284,9 @@ module RailsEventStoreActiveRecord
     specify "limited query when looking for unexisting events during linking" do
       expect_query(/SELECT.*event_store_events.*id.*FROM.*event_store_events.*WHERE.*event_store_events.*id.*=.*/) do
         expect do
-          repository.link_to_stream('72922e65-1b32-4e97-8023-03ae81dd3a27', "flow", RubyEventStore::ExpectedVersion.none)
+          repository.link_to_stream(['72922e65-1b32-4e97-8023-03ae81dd3a27'], RubyEventStore::Stream.new("flow"), RubyEventStore::ExpectedVersion.none)
         end.to raise_error(RubyEventStore::EventNotFound)
       end
-    end
-
-    class FillInRepository < EventRepository
-      def fill_ids(in_stream)
-        in_stream.each.with_index.map do |is, index|
-          is[:id] = index + 987_654_321
-          is[:id] += 3 if is[:stream] == "whoo"
-        end
-      end
-    end
-
-    specify 'fill_ids in append_to_stream' do
-      repository = FillInRepository.new(serializer: YAML)
-      repository.append_to_stream(
-        [event = RubyEventStore::SRecord.new],
-        RubyEventStore::Stream.new('stream'),
-        RubyEventStore::ExpectedVersion.any
-      )
-
-      expect(EventInStream.find(987_654_321).stream).to eq("stream")
-    end
-
-    specify 'fill_ids in link_to_stream' do
-      repository = FillInRepository.new(serializer: YAML)
-      repository.append_to_stream(
-        [event = RubyEventStore::SRecord.new],
-        RubyEventStore::Stream.new('stream'),
-        RubyEventStore::ExpectedVersion.any
-      )
-      repository.link_to_stream(
-        [event.event_id],
-        RubyEventStore::Stream.new("whoo"),
-        RubyEventStore::ExpectedVersion.any
-      )
-
-      expect(EventInStream.find(987_654_321).stream).to eq("stream")
-      expect(EventInStream.find(987_654_324).stream).to eq("whoo")
     end
 
     specify 'read in batches forward' do
@@ -362,12 +325,12 @@ module RailsEventStoreActiveRecord
       all_events = Array.new(400) { RubyEventStore::SRecord.new }
       all_events.each_slice(2) do |(first, second)|
         repository.append_to_stream(
-          first,
+          [first],
           RubyEventStore::Stream.new("bazinga"),
           RubyEventStore::ExpectedVersion.any
         )
         repository.append_to_stream(
-          second,
+          [second],
           RubyEventStore::Stream.new(RubyEventStore::GLOBAL_STREAM),
           RubyEventStore::ExpectedVersion.any
         )
@@ -476,7 +439,7 @@ module RailsEventStoreActiveRecord
     specify 'no valid-at storage optimization when different from created-at' do
       repository.append_to_stream(
         [RubyEventStore::SRecord.new(
-          timestamp: t1 = with_precision(Time.at(0)), 
+          timestamp: t1 = with_precision(Time.at(0)),
           valid_at:  t2 = with_precision(Time.at(1))
         )],
         RubyEventStore::Stream.new(RubyEventStore::GLOBAL_STREAM),
@@ -489,6 +452,77 @@ module RailsEventStoreActiveRecord
       event_record = Event.find_by(event_id: record.event_id)
       expect(event_record.created_at).to eq(t1)
       expect(event_record.valid_at).to   eq(t2)
+    end
+
+    specify 'with batches and bi-temporal queries use offset + limit' do
+      repository.append_to_stream([
+        RubyEventStore::SRecord.new(event_id: e1 = SecureRandom.uuid, timestamp: Time.new(2020,1,1), valid_at: Time.new(2020,1,9)),
+        RubyEventStore::SRecord.new(event_id: e2 = SecureRandom.uuid, timestamp: Time.new(2020,1,3), valid_at: Time.new(2020,1,6)),
+        RubyEventStore::SRecord.new(event_id: e3 = SecureRandom.uuid, timestamp: Time.new(2020,1,2), valid_at: Time.new(2020,1,3)),
+      ],
+        RubyEventStore::Stream.new("Dummy"),
+        RubyEventStore::ExpectedVersion.any
+      )
+
+      expect_query(/SELECT.*FROM.*event_store_events.*ORDER BY .*event_store_events.*created_at.*,.*event_store_events.*id.* ASC LIMIT.*.OFFSET.*/, 2) do
+        repository.read(specification.in_batches.as_at.result).to_a
+      end
+      expect_query(/SELECT.*FROM.*event_store_events.*ORDER BY .*event_store_events.*valid_at.*,.*event_store_events.*id.* ASC LIMIT.*.OFFSET.*/, 2) do
+        repository.read(specification.in_batches.as_of.result).to_a
+      end
+    end
+
+    specify 'with batches and non-bi-temporal queries use monotnic ids' do
+      repository.append_to_stream([
+        RubyEventStore::SRecord.new(event_id: e1 = SecureRandom.uuid, timestamp: Time.new(2020,1,1), valid_at: Time.new(2020,1,9)),
+        RubyEventStore::SRecord.new(event_id: e2 = SecureRandom.uuid, timestamp: Time.new(2020,1,3), valid_at: Time.new(2020,1,6)),
+        RubyEventStore::SRecord.new(event_id: e3 = SecureRandom.uuid, timestamp: Time.new(2020,1,2), valid_at: Time.new(2020,1,3)),
+      ],
+        RubyEventStore::Stream.new("Dummy"),
+        RubyEventStore::ExpectedVersion.any
+      )
+
+      expect_query(/SELECT.*FROM.*event_store_events.*WHERE.*event_store_events.id >*.*ORDER BY .*event_store_events.*id.* ASC LIMIT.*/) do
+        repository.read(specification.in_batches.result).to_a
+      end
+    end
+
+    specify do
+      events = Array.new(200) { RubyEventStore::SRecord.new }
+      repository.append_to_stream(
+        events,
+        RubyEventStore::Stream.new(RubyEventStore::GLOBAL_STREAM),
+        RubyEventStore::ExpectedVersion.any
+      )
+
+      batches = repository.read(specification.as_at.forward.limit(101).in_batches.result).to_a
+      expect(batches.size).to eq(2)
+      expect(batches[0].size).to eq(100)
+      expect(batches[1].size).to eq(1)
+      expect(batches[0]).to eq(events[0..99])
+      expect(batches[1]).to eq([events[100]])
+    end
+
+    specify do
+      repository.append_to_stream([
+        event0 = RubyEventStore::SRecord.new,
+        event1 = RubyEventStore::SRecord.new,
+      ], stream = RubyEventStore::Stream.new('stream'), RubyEventStore::ExpectedVersion.auto)
+
+      expect_query(/SELECT\s+.event_store_events_in_streams.\..position. FROM .event_store_events_in_streams.*/) do
+        repository.position_in_stream(event0.event_id, stream)
+      end
+    end
+
+    specify do
+      repository.append_to_stream(
+        [event = RubyEventStore::SRecord.new],
+        RubyEventStore::Stream.new('stream'),
+        RubyEventStore::ExpectedVersion.any
+      )
+      expect_query(/SELECT\s+.event_store_events.\..id. FROM .event_store_events.*/) do
+        repository.global_position(event.event_id)
+      end
     end
 
     def with_precision(time)
@@ -524,13 +558,13 @@ module RailsEventStoreActiveRecord
       count
     end
 
-    def expect_query(match, &block)
+    def expect_query(match, times = 1, &block)
       count = 0
       counter_f = ->(_name, _started, _finished, _unique_id, payload) {
         count +=1 if match === payload[:sql]
       }
       ActiveSupport::Notifications.subscribed(counter_f, "sql.active_record", &block)
-      expect(count).to eq(1)
+      expect(count).to eq(times)
     end
   end
 end

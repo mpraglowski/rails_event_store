@@ -56,6 +56,22 @@ ul {
   margin-bottom: 30px;
 }
 
+.documentation ul {
+  @apply list-disc pl-4;
+}
+
+.documentation table {
+  @apply block mb-4;
+}
+
+.documentation table * {
+  @apply border p-2;
+}
+
+.documentation table th {
+  @apply font-bold text-left;
+}
+
 li ul {
   margin-bottom: 0;
 }
@@ -100,7 +116,7 @@ code {
 }
 
 pre > code {
-  @apply bg-none scrolling-touch overflow-x-auto block;
+  @apply bg-none overflow-x-auto block;
 }
 
 :not(pre) > code {
@@ -244,7 +260,7 @@ pre > code {
 }
 
 .site-navigation__link--external {
-  @apply text-gray-700 font-bold text-sm tracking-tight;
+  @apply text-gray-700;
 }
 
 .site-navigation__links {
@@ -302,33 +318,4 @@ pre > code {
 
 .algolia-autocomplete {
   width: 100%;
-}
-
-table {
-  @apply block w-full overflow-auto;
-
-  & th {
-    @apply font-bold;
-  }
-
-  & th,
-  & td {
-    @apply border border-gray-500 px-2 py-2;
-  }
-
-  & tr {
-    @apply bg-white border-t border-gray-500;
-
-    &:nth-child(2n) {
-      @apply bg-gray-100;
-    }
-  }
-
-  & tr:last-child {
-    @apply border-b border-gray-500;
-  }
-
-  & img {
-    background-color: transparent;
-  }
 }

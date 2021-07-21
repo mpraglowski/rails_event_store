@@ -1,30 +1,27 @@
-# coding: utf-8
+# frozen_string_literal: true
 
-lib = File.expand_path('../lib', __FILE__)
-$LOAD_PATH.unshift(lib) unless $LOAD_PATH.include?(lib)
-require 'aggregate_root/version'
+require_relative "lib/aggregate_root/version"
 
 Gem::Specification.new do |spec|
-  spec.name          = 'aggregate_root'
-  spec.version       = AggregateRoot::VERSION
-  spec.licenses      = ['MIT']
-  spec.authors       = ['Arkency']
-  spec.email         = ['dev@arkency.com']
-
-  spec.summary       = %q{Event sourced (with Rails Event Store) aggregate root implementation}
-  spec.description   = %q{Event sourced (with Rails Event Store) aggregate root implementation}
-  spec.homepage      = 'https://railseventstore.org'
+  spec.name             = "aggregate_root"
+  spec.version          = AggregateRoot::VERSION
+  spec.license          = "MIT"
+  spec.author           = "Arkency"
+  spec.email            = "dev@arkency.com"
+  spec.summary          = "Event sourced aggregate root implementation for RubyEventStore"
+  spec.homepage         = "https://railseventstore.org"
+  spec.files            = Dir["lib/**/*"]
+  spec.require_paths    = %w[lib]
+  spec.extra_rdoc_files = %w[README.md]
   spec.metadata = {
-    "homepage_uri"    => "https://railseventstore.org/",
+    "homepage_uri"    => spec.homepage,
     "changelog_uri"   => "https://github.com/RailsEventStore/rails_event_store/releases",
     "source_code_uri" => "https://github.com/RailsEventStore/rails_event_store",
     "bug_tracker_uri" => "https://github.com/RailsEventStore/rails_event_store/issues",
   }
 
-  spec.files         = `git ls-files -z`.split("\x0").reject { |f| f.match(%r{^(test|spec|features)/}) }
-  spec.bindir        = 'exe'
-  spec.executables   = spec.files.grep(%r{^exe/}) { |f| File.basename(f) }
-  spec.require_paths = ['lib']
+  spec.required_ruby_version = ">= 2.6"
 
-  spec.add_dependency 'ruby_event_store', '= 1.1.1'
+  spec.add_dependency "ruby2_keywords"
+  spec.add_dependency "ruby_event_store", "= 2.2.0"
 end

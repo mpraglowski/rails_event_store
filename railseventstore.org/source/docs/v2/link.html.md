@@ -38,7 +38,7 @@ order.place
 
 Now imagine you'd like to see in one place all facts about placed orders in Jan 2018. This can be done processing all events collected so far in the event store. Each time you want such report, it runs from beginning — filtering irrelevant events out.
 
-For repeated use it would be much better process events only once and store them in some sort of a collection — the stream:
+For repeated use it would be much better to process events only once and store them in some sort of a collection — the stream:
 
 ```ruby
 order_placed = RailsEventStore::Projection
@@ -93,4 +93,4 @@ event_store.subscribe(subscriber, [OrderPlaced])
 
 It is worth remembering that linking an event does not trigger event handlers and you cannot link same event more than once in a given stream.
 
-Linking also follows the same rules regarding [expected_version](/docs/v1/expected_version/) as publishing an event for the first time.
+Linking also follows the same rules regarding [expected_version](/docs/v2/expected_version/) as publishing an event for the first time.

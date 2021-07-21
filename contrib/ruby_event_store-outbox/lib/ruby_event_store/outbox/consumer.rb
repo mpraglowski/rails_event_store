@@ -1,10 +1,12 @@
 require "logger"
 require "redis"
 require "active_record"
-require "ruby_event_store/outbox/record"
-require "ruby_event_store/outbox/sidekiq5_format"
-require "ruby_event_store/outbox/sidekiq_processor"
-require "ruby_event_store/outbox/fetch_specification"
+require_relative "repository"
+require_relative "sidekiq5_format"
+require_relative "sidekiq_processor"
+require_relative "fetch_specification"
+require_relative "cleanup_strategies/none"
+require_relative "cleanup_strategies/clean_old_enqueued"
 
 module RubyEventStore
   module Outbox
@@ -18,13 +20,15 @@ module RubyEventStore
           message_format:,
           batch_size:,
           database_url:,
-          redis_url:
+          redis_url:,
+          cleanup:
         )
           @split_keys = split_keys
           @message_format = message_format
           @batch_size = batch_size || 100
           @database_url = database_url
           @redis_url = redis_url
+          @cleanup = cleanup
           freeze
         end
 
@@ -35,10 +39,11 @@ module RubyEventStore
             batch_size: overriden_options.fetch(:batch_size, batch_size),
             database_url: overriden_options.fetch(:database_url, database_url),
             redis_url: overriden_options.fetch(:redis_url, redis_url),
+            cleanup: overriden_options.fetch(:cleanup, cleanup)
           )
         end
 
-        attr_reader :split_keys, :message_format, :batch_size, :database_url, :redis_url
+        attr_reader :split_keys, :message_format, :batch_size, :database_url, :redis_url, :cleanup
       end
 
       def initialize(consumer_uuid, configuration, clock: Time, logger:, metrics:)
@@ -48,16 +53,20 @@ module RubyEventStore
         @metrics = metrics
         @batch_size = configuration.batch_size
         @consumer_uuid = consumer_uuid
-        ActiveRecord::Base.establish_connection(configuration.database_url) unless ActiveRecord::Base.connected?
-        if ActiveRecord::Base.connection.adapter_name == "Mysql2"
-          ActiveRecord::Base.connection.execute("SET SESSION innodb_lock_wait_timeout = 1;")
-        end
 
         raise "Unknown format" if configuration.message_format != SIDEKIQ5_FORMAT
         @processor = SidekiqProcessor.new(Redis.new(url: configuration.redis_url))
 
         @gracefully_shutting_down = false
         prepare_traps
+
+        @repository = Repository.new(configuration.database_url)
+        @cleanup_strategy = case configuration.cleanup
+        when :none
+          CleanupStrategies::None.new
+        else
+          CleanupStrategies::CleanOldEnqueued.new(repository, ActiveSupport::Duration.parse(configuration.cleanup))
+        end
       end
 
       def init
@@ -105,7 +114,7 @@ module RubyEventStore
               now = @clock.now.utc
               processor.process(record, now)
 
-              record.update_column(:enqueued_at, now)
+              repository.mark_as_enqueued(record, now)
               something_processed |= true
               updated_record_ids << record.id
             rescue => e
@@ -124,8 +133,8 @@ module RubyEventStore
 
           logger.info "Sent #{updated_record_ids.size} messages from outbox table"
 
-          obtained_lock = refresh_lock_for_process(obtained_lock)
-          break unless obtained_lock
+          refresh_successful = refresh_lock_for_process(obtained_lock)
+          break unless refresh_successful
         end
 
         metrics.write_point_queue(
@@ -136,16 +145,18 @@ module RubyEventStore
 
         release_lock_for_process(fetch_specification)
 
+        cleanup_strategy.call(fetch_specification)
+
         processor.after_batch
 
         something_processed
       end
 
       private
-      attr_reader :split_keys, :logger, :batch_size, :metrics, :processor, :consumer_uuid
+      attr_reader :split_keys, :logger, :batch_size, :metrics, :processor, :consumer_uuid, :repository, :cleanup_strategy
 
       def obtain_lock_for_process(fetch_specification)
-        result = Lock.obtain(fetch_specification, consumer_uuid, clock: @clock)
+        result = repository.obtain_lock_for_process(fetch_specification, consumer_uuid, clock: @clock)
         case result
         when :deadlocked
           logger.warn "Obtaining lock for split_key '#{fetch_specification.split_key}' failed (deadlock)"
@@ -165,7 +176,7 @@ module RubyEventStore
       end
 
       def release_lock_for_process(fetch_specification)
-        result = Lock.release(fetch_specification, consumer_uuid)
+        result = repository.release_lock_for_process(fetch_specification, consumer_uuid)
         case result
         when :ok
         when :deadlocked
@@ -185,6 +196,8 @@ module RubyEventStore
       def refresh_lock_for_process(lock)
         result = lock.refresh(clock: @clock)
         case result
+        when :ok
+          return true
         when :deadlocked
           logger.warn "Refreshing lock for split_key '#{lock.split_key}' failed (deadlock)"
           metrics.write_operation_result("refresh", "deadlocked")
@@ -198,7 +211,7 @@ module RubyEventStore
           metrics.write_operation_result("refresh", "stolen")
           return false
         else
-          return result
+          raise "Unexpected result #{result}"
         end
       end
 
@@ -216,11 +229,11 @@ module RubyEventStore
       end
 
       def retrieve_batch(fetch_specification)
-        Record.remaining_for(fetch_specification).order("id ASC").limit(batch_size).to_a
+        repository.retrieve_batch(fetch_specification, batch_size)
       end
 
       def get_remaining_count(fetch_specification)
-        Record.remaining_for(fetch_specification).count
+        repository.get_remaining_count(fetch_specification)
       end
     end
   end

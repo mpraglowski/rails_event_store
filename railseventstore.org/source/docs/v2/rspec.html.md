@@ -2,24 +2,24 @@
 title: RSpec matchers
 ---
 
-## Adding matchers to the project
+## Adding matchers to project
 
-Add this line to your application's Gemfile:
+Add this line to your application's `Gemfile`:
 
 ```ruby
 group :test do
-  gem 'rails_event_store-rspec'
+  gem 'ruby_event_store-rspec'
 end
 ```
 
-## Matchers usage
+## Event matchers
 
 ### be_event
 
 The `be_event` matcher enables you to make expectations on a domain event. It exposes fluent interface.
 
 ```ruby
-OrderPlaced  = Class.new(RailsEventStore::Event)
+OrderPlaced  = Class.new(RubyEventStore::Event)
 domain_event = OrderPlaced.new(
   data: {
     order_id: 42,
@@ -81,25 +81,36 @@ expect(domain_event)
 
 You may have noticed the same matcher being referenced as `be_event`, `be_an_event` and `an_event`. There's also just `event`. Use whichever reads better grammatically.
 
+
+## Event store matchers
+
 ### have_published
 
 Use this matcher to target `event_store` and reading from streams specifically.
 In a simplest form it would read all streams forward and check whether the expectation holds true. Its behaviour can be best compared to the `include` matcher — it is satisfied by at least one element present in the collection. You're encouraged to compose it with `be_event`.
 
 ```ruby
-event_store = RailsEventStore::Client.new
+event_store = RubyEventStore::Client.new(repository: RubyEventStore::InMemoryRepository.new)
 event_store.publish(OrderPlaced.new(data: { order_id: 42 }))
 
 expect(event_store).to have_published(an_event(OrderPlaced))
 ```
 
-Expectation can be narrowed to the specific stream.
+Expectation can be narrowed to the specific stream(s).
 
 ```ruby
-event_store = RailsEventStore::Client.new
+event_store = RubyEventStore::Client.new(repository: RubyEventStore::InMemoryRepository.new)
 event_store.publish(OrderPlaced.new(data: { order_id: 42 }), stream_name: "Order$42")
 
 expect(event_store).to have_published(an_event(OrderPlaced)).in_stream("Order$42")
+```
+
+```ruby
+event_store = RubyEventStore::Client.new(repository: RubyEventStore::InMemoryRepository.new)
+event_store.publish(event = OrderPlaced.new(data: { order_id: 42 }), stream_name: "Order$42")
+event_store.link(event.event_id, stream_name: "SalesReport2021")
+
+expect(event_store).to have_published(an_event(OrderPlaced)).in_streams(["Order$42", "SalesReport2021"])
 ```
 
 It is sometimes important to ensure that specific amount of events of given type have been published. Luckily there's a modifier to cover that usecase.
@@ -149,20 +160,40 @@ expect(event_store.read.stream("OrderAuditLog$42").limit(2)).to eq([
 This matcher is similar to `have_published` one, but targets only events published in given execution block.
 
 ```ruby
-event_store = RailsEventStore::Client.new
+event_store = RubyEventStore::Client.new(repository: RubyEventStore::InMemoryRepository.new)
 expect {
   event_store.publish(OrderPlaced.new(data: { order_id: 42 }))
 }.to publish(an_event(OrderPlaced)).in(event_store)
 ```
 
-Expectation can be narrowed to the specific stream.
+Expectation can be narrowed to the specific stream(s).
 
 ```ruby
-event_store = RailsEventStore::Client.new
+event_store = RubyEventStore::Client.new(repository: RubyEventStore::InMemoryRepository.new)
 expect {
   event_store.publish(OrderPlaced.new(data: { order_id: 42 }), stream_name: "Order$42")
 }.to publish(an_event(OrderPlaced)).in(event_store).in_stream("Order$42")
+```
 
+```ruby
+event_store = RubyEventStore::Client.new(repository: RubyEventStore::InMemoryRepository.new)
+expect {
+  event_store.publish(event = OrderPlaced.new(data: { order_id: 42 }), stream_name: "Order$42")
+  event_store.link(event.event_id, stream_name: "SalesReport2021")
+}.to publish(an_event(OrderPlaced)).in(event_store).in_streams(["Order$42", "SalesReport2021")
+```
+
+It is sometimes important to ensure that specific amount of events of given type have been published. Luckily there's a modifier to cover that usecase.
+
+```ruby
+expect {
+  event_store.publish(OrderPlaced.new(data: { order_id: 42 }), stream_name: "Order$42")
+}.to publish(an_event(OrderPlaced)).once.in(event_store)
+
+expect {
+  event_store.publish(OrderPlaced.new(data: { order_id: 42 }), stream_name: "Order$42")
+  event_store.publish(OrderPlaced.new(data: { order_id: 42 }), stream_name: "Order$42")
+}.to publish(an_event(OrderPlaced)).exactly(2).times.in(event_store)
 ```
 
 You can make expectation on several events at once.
@@ -176,14 +207,36 @@ expect {
 ).in(event_store)
 ```
 
+### have_subscribed_to_events
 
-## AggregateRoot matchers
+Use this matcher to make sure that a handler has or has not subscribed to event types in target `event_store`.
 
-The matchers described below are intended to be used on [aggregate root](https://github.com/RailsEventStore/rails_event_store/tree/master/aggregate_root#usage).
+Ensuring handler is subscribed to given event types:
+
+```ruby
+event_store = RubyEventStore::Client.new(repository: RubyEventStore::InMemoryRepository.new)
+
+expect(Handler).to have_subscribed_to_events(FooEvent, BarEvent).in(event_store)
+```
+
+Checking if handler does not subscribe to any of given event types:
+
+```ruby
+expect(Handler).not_to have_subscribed_to_events(FooEvent, BarEvent).in(event_store)
+```
+
+
+## Aggregate root matchers
+
+The matchers described below are intended to be used on [aggregate root](https://github.com/RailsEventStore/rails_event_store/tree/master/aggregate_root#usage) gem.
 
 To explain the usage of matchers sample aggregate class is defined:
 
 ```ruby
+OrderSubmitted = Class.new(RubyEventStore::Event)
+OrderExpired   = Class.new(RubyEventStore::Event)
+
+
 class Order
   include AggregateRoot
   HasBeenAlreadySubmitted = Class.new(StandardError)
@@ -207,17 +260,17 @@ class Order
   private
   attr_accessor :state
 
-  def apply_order_submitted(event)
+  on OrderSubmitted do |event|
     self.state = :submitted
   end
 
-  def apply_order_expired(event)
+  on OrderExpired do |event|
     self.state = :expired
   end
 end
 ```
 
-The matchers behaviour is almost identical to `have_published` & `publish` counterparts, except the concept of stream. Expecations are made against internal unpublished events collection.
+The matchers behaviour is almost identical to `have_published` and `publish` counterparts, except the concept of stream. Expecations are made against internal unpublished events collection.
 
 ### have_applied
 
@@ -255,6 +308,20 @@ aggregate_root.submit
 expect {
   aggregate_root.expire
 }.to apply(event(OrderExpired)).in(aggregate_root)
+```
+
+You could define expectations how many events have been applied by using:
+
+```ruby
+expect do
+  aggregate_root.expire
+end.to apply(an_event(OrderExpired)).once.in(aggregate_root)
+
+expect do
+  aggregate_root.expire
+  aggregate_root.expire
+  aggregate_root.expire
+end.to apply(an_event(OrderExpired)).exactly(3).times.in(aggregate_root)
 ```
 
 With `strict` option it checks if only expected events have been applied in given execution block.

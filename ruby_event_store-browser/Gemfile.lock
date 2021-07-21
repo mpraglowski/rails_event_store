@@ -1,119 +1,85 @@
 PATH
-  remote: ../aggregate_root
-  specs:
-    aggregate_root (1.1.1)
-      ruby_event_store (= 1.1.1)
-
-PATH
-  remote: ../bounded_context
-  specs:
-    bounded_context (1.1.1)
-
-PATH
   remote: ../ruby_event_store
   specs:
-    ruby_event_store (1.1.1)
+    ruby_event_store (2.2.0)
       concurrent-ruby (~> 1.0, >= 1.1.6)
+      ruby2_keywords
 
 PATH
   remote: .
   specs:
-    ruby_event_store-browser (1.1.1)
-      ruby_event_store (= 1.1.1)
+    ruby_event_store-browser (2.2.0)
+      ruby_event_store (= 2.2.0)
       sinatra
 
 GEM
-  remote: https://rubygems.org/
   remote: https://oss:7AXfeZdAfCqL1PvHm2nvDJO6Zd9UW8IK@gem.mutant.dev/
   specs:
-    abstract_type (0.0.7)
-    adamantium (0.2.0)
-      ice_nine (~> 0.11.0)
-      memoizable (~> 0.4.0)
+    mutant-license (0.1.1.2.1627430819213747598431630701693729869473.1)
+
+GEM
+  remote: https://rubygems.org/
+  specs:
     addressable (2.7.0)
       public_suffix (>= 2.0.2, < 5.0)
-    anima (0.3.2)
-      abstract_type (~> 0.0.7)
-      adamantium (~> 0.2)
-      equalizer (~> 0.0.11)
-    ast (2.4.1)
-    capybara (3.34.0)
+    ast (2.4.2)
+    capybara (3.35.3)
       addressable
       mini_mime (>= 0.1.3)
       nokogiri (~> 1.8)
       rack (>= 1.6.0)
       rack-test (>= 0.6.3)
-      regexp_parser (~> 1.5)
+      regexp_parser (>= 1.5, < 3.0)
       xpath (~> 3.2)
     childprocess (3.0.0)
-    concord (0.1.6)
-      adamantium (~> 0.2.0)
-      equalizer (~> 0.0.9)
-    concurrent-ruby (1.1.7)
+    concurrent-ruby (1.1.8)
     diff-lcs (1.4.4)
-    equalizer (0.0.11)
-    ice_nine (0.11.2)
     json-schema (2.8.1)
       addressable (>= 2.4)
-    memoizable (0.4.2)
-      thread_safe (~> 0.3, >= 0.3.1)
-    mini_mime (1.0.2)
-    mini_portile2 (2.4.0)
-    mprelude (0.1.0)
-      abstract_type (~> 0.0.7)
-      adamantium (~> 0.2.0)
-      concord (~> 0.1.5)
-      equalizer (~> 0.0.9)
-      ice_nine (~> 0.11.1)
-      procto (~> 0.0.2)
+    mini_mime (1.1.0)
+    mini_portile2 (2.5.1)
+    minitest (5.14.4)
     mustermann (1.1.1)
       ruby2_keywords (~> 0.0.1)
-    mutant (0.10.15)
-      abstract_type (~> 0.0.7)
-      adamantium (~> 0.2.0)
-      anima (~> 0.3.1)
-      ast (~> 2.2)
-      concord (~> 0.1.5)
+    mutant (0.10.32)
       diff-lcs (~> 1.3)
-      equalizer (~> 0.0.9)
-      ice_nine (~> 0.11.1)
-      memoizable (~> 0.4.2)
-      mprelude (~> 0.1.0)
-      parser (~> 2.7.1)
-      procto (~> 0.0.2)
-      unparser (~> 0.5.4)
-      variable (~> 0.0.1)
-    mutant-license (0.1.1.2.1627430819213747598431630701693729869473.0)
-    mutant-rspec (0.10.15)
-      mutant (~> 0.10.15)
+      parser (~> 3.0.0)
+      regexp_parser (~> 2.0, >= 2.0.3)
+      unparser (~> 0.6.0)
+    mutant-minitest (0.10.32)
+      minitest (~> 5.11)
+      mutant (= 0.10.32)
+    mutant-rspec (0.10.32)
+      mutant (= 0.10.32)
       rspec-core (>= 3.8.0, < 4.0.0)
-    nokogiri (1.10.10)
-      mini_portile2 (~> 2.4.0)
-    parser (2.7.2.0)
+    nokogiri (1.11.5)
+      mini_portile2 (~> 2.5.0)
+      racc (~> 1.4)
+    parser (3.0.1.1)
       ast (~> 2.4.1)
-    procto (0.0.3)
     public_suffix (4.0.6)
+    racc (1.5.2)
     rack (2.2.3)
     rack-protection (2.1.0)
       rack
     rack-test (1.1.0)
       rack (>= 1.0, < 3)
-    rake (13.0.1)
-    regexp_parser (1.8.2)
+    rake (13.0.3)
+    regexp_parser (2.1.1)
     rspec (3.10.0)
       rspec-core (~> 3.10.0)
       rspec-expectations (~> 3.10.0)
       rspec-mocks (~> 3.10.0)
-    rspec-core (3.10.0)
+    rspec-core (3.10.1)
       rspec-support (~> 3.10.0)
-    rspec-expectations (3.10.0)
+    rspec-expectations (3.10.1)
       diff-lcs (>= 1.2.0, < 2.0)
       rspec-support (~> 3.10.0)
-    rspec-mocks (3.10.0)
+    rspec-mocks (3.10.2)
       diff-lcs (>= 1.2.0, < 2.0)
       rspec-support (~> 3.10.0)
-    rspec-support (3.10.0)
-    ruby2_keywords (0.0.2)
+    rspec-support (3.10.2)
+    ruby2_keywords (0.0.4)
     rubyzip (2.3.0)
     selenium-webdriver (3.142.7)
       childprocess (>= 0.5, < 4.0)
@@ -123,20 +89,11 @@ GEM
       rack (~> 2.2)
       rack-protection (= 2.1.0)
       tilt (~> 2.0)
-    thread_safe (0.3.6)
     tilt (2.0.10)
-    unparser (0.5.4)
-      abstract_type (~> 0.0.7)
-      adamantium (~> 0.2.0)
-      anima (~> 0.3.1)
-      concord (~> 0.1.5)
+    unparser (0.6.0)
       diff-lcs (~> 1.3)
-      equalizer (~> 0.0.9)
-      mprelude (~> 0.1.0)
-      parser (>= 2.6.5)
-      procto (~> 0.0.2)
-    variable (0.0.1)
-      equalizer (~> 0.0.11)
+      parser (>= 3.0.0)
+    webrick (1.7.0)
     xpath (3.2.0)
       nokogiri (~> 1.8)
 
@@ -144,13 +101,12 @@ PLATFORMS
   ruby
 
 DEPENDENCIES
-  aggregate_root!
-  bounded_context!
-  capybara (~> 3.18)
+  capybara (~> 3.35)
   json-schema
-  mutant (~> 0.10.15)
+  mutant (~> 0.10.26)
   mutant-license!
-  mutant-rspec (~> 0.10.15)
+  mutant-minitest (~> 0.10.26)
+  mutant-rspec (~> 0.10.26)
   rack
   rack-test
   rake (>= 10.0)
@@ -158,6 +114,7 @@ DEPENDENCIES
   ruby_event_store!
   ruby_event_store-browser!
   selenium-webdriver (~> 3.141)
+  webrick
 
 BUNDLED WITH
-   2.1.4
+   2.2.17

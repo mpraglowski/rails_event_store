@@ -5,11 +5,11 @@ module RubyEventStore
   module Outbox
     RSpec.describe "Sidekiq correctness spec", db: true do
       include SchemaHelper
-      let(:redis_url) { ENV["REDIS_URL"] }
+      let(:redis_url) { RedisIsolation.redis_url }
       let(:database_url) { ENV["DATABASE_URL"] }
       let(:redis) { Redis.new(url: redis_url) }
       let(:test_logger) { Logger.new(StringIO.new) }
-      let(:default_configuration) { Consumer::Configuration.new(database_url: database_url, redis_url: redis_url, split_keys: ["default"], message_format: SIDEKIQ5_FORMAT, batch_size: 100) }
+      let(:default_configuration) { Consumer::Configuration.new(database_url: database_url, redis_url: redis_url, split_keys: ["default"], message_format: SIDEKIQ5_FORMAT, batch_size: 100, cleanup: :none) }
       let(:metrics) { Metrics::Null.new }
 
       before(:each) do |example|
@@ -21,8 +21,8 @@ module RubyEventStore
       end
 
       specify do
-        event = TimestampEnrichment.with_timestamp(Event.new(event_id: "83c3187f-84f6-4da7-8206-73af5aca7cc8"), Time.utc(2019, 9, 30))
-        serialized_record = RubyEventStore::Mappers::Default.new.event_to_serialized_record(event)
+        event = TimeEnrichment.with(Event.new(event_id: "83c3187f-84f6-4da7-8206-73af5aca7cc8"), timestamp: Time.utc(2019, 9, 30))
+        serialized_record = RubyEventStore::Mappers::Default.new.event_to_record(event).serialize(YAML)
         class ::CorrectAsyncHandler
           include Sidekiq::Worker
           def through_outbox?; true; end

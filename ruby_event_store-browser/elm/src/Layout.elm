@@ -3,8 +3,8 @@ module Layout exposing (Model, Msg, buildModel, update, view, viewIncorrectConfi
 import Browser.Navigation
 import Flags exposing (Flags)
 import Html exposing (..)
-import Html.Attributes exposing (class, disabled, href, placeholder, value)
-import Html.Events exposing (onClick, onInput, onSubmit)
+import Html.Attributes exposing (class, href, placeholder, value)
+import Html.Events exposing (onInput, onSubmit)
 import Route
 import Url
 import WrappedModel exposing (..)
@@ -38,10 +38,10 @@ update msg model =
 
 view : (Msg -> a) -> WrappedModel Model -> Html a -> Html a
 view layoutMsgBuilder model pageView =
-    div [ class "frame" ]
-        [ header [ class "frame__header" ] [ Html.map layoutMsgBuilder (browserNavigation model) ]
-        , main_ [ class "frame__body" ] [ pageView ]
-        , footer [ class "frame__footer" ] [ Html.map layoutMsgBuilder (browserFooter model.flags) ]
+    div [ class "bg-gray-100 min-h-screen w-full text-gray-800 font-sans leading-relaxed antialiased" ]
+        [ header [] [ Html.map layoutMsgBuilder (browserNavigation model) ]
+        , main_ [ class "bg-white" ] [ pageView ]
+        , footer [] [ Html.map layoutMsgBuilder (browserFooter model.flags) ]
         ]
 
 
@@ -57,14 +57,14 @@ viewIncorrectConfig =
 
 browserNavigation : WrappedModel Model -> Html Msg
 browserNavigation model =
-    nav [ class "navigation" ]
-        [ div [ class "navigation__brand" ]
-            [ a [ href (Url.toString model.flags.rootUrl), class "navigation__logo" ] [ text "Ruby Event Store" ]
+    nav [ class "flex bg-red-700 px-8 h-16" ]
+        [ div [ class "flex items-center" ]
+            [ a [ href (Url.toString model.flags.rootUrl), class "text-gray-100 font-semibold" ] [ text "Ruby Event Store" ]
             ]
-        , div [ class "navigation__links" ] []
-        , div [ class "navigation__go-to-stream" ]
+        , div [ class "flex-1" ] []
+        , div [ class "flex items-center" ]
             [ form [ onSubmit GoToStream ]
-                [ input [ value model.internal.goToStream, onInput GoToStreamChanged, placeholder "Go to stream..." ] []
+                [ input [ class "rounded px-4 py-2", value model.internal.goToStream, onInput GoToStreamChanged, placeholder "Go to stream..." ] []
                 ]
             ]
         ]
@@ -72,10 +72,12 @@ browserNavigation model =
 
 browserFooter : Flags -> Html Msg
 browserFooter flags =
-    footer [ class "footer" ]
-        [ div [ class "footer__links" ]
+    footer [ class "border-gray-400 border-t py-4" ]
+        [ div [ class "flex justify-center text-gray-500 text-sm" ]
             [ text ("RubyEventStore v" ++ flags.resVersion)
-            , a [ href "https://railseventstore.org/docs/install/", class "footer__link" ] [ text "Documentation" ]
-            , a [ href "https://railseventstore.org/support/", class "footer__link" ] [ text "Support" ]
+            , span [ class "font-bold text-gray-400 inline-block ml-4" ] [ text "•" ]
+            , a [ href "https://railseventstore.org/docs/install/", class "text-gray-500 ml-4" ] [ text "Documentation" ]
+            , span [ class "font-bold text-gray-400 inline-block ml-4" ] [ text "•" ]
+            , a [ href "https://railseventstore.org/support/", class "text-gray-500 ml-4" ] [ text "Support" ]
             ]
         ]

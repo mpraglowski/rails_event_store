@@ -14,7 +14,7 @@ bundle exec middleman server
 
 ## Publishing the docs
 
-Documentation and website are deployed continuously and automatically from the `master` branch by Travis-CI.
+Documentation and website are deployed continuously and automatically from the `master` branch.
 
 ## About
 
@@ -23,3 +23,4 @@ Documentation and website are deployed continuously and automatically from the `
 Rails Event Store is funded and maintained by Arkency. Check out our other [open-source projects](https://github.com/arkency).
 
 You can also [hire us](http://arkency.com) or [read our blog](http://blog.arkency.com).
+

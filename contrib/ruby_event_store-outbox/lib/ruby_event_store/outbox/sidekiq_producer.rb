@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require 'sidekiq'
-require "ruby_event_store/outbox/sidekiq5_format"
+require_relative "repository"
 
 module RubyEventStore
   module Outbox
@@ -15,13 +15,16 @@ module RubyEventStore
         normalized_item = sidekiq_client.__send__(:normalize_item, item)
         payload = sidekiq_client.__send__(:process_single, normalized_item.fetch('class'), normalized_item)
         if payload
-          Record.create!(
+          Repository::Record.create!(
             format: SIDEKIQ5_FORMAT,
             split_key: payload.fetch('queue'),
             payload: payload.to_json
           )
         end
       end
+
+      private
+      attr_reader :repository
     end
   end
 end

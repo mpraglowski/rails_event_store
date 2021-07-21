@@ -58,11 +58,15 @@ module RubyEventStore
     def rescuable_concurrency_test_errors
       []
     end
+
+    def supports_position_queries?
+      true
+    end
   end
 end
 
 module RubyEventStore
-  RSpec.shared_examples :event_repository do
+  ::RSpec.shared_examples :event_repository do
     let(:helper)        { EventRepositoryHelper.new }
     let(:specification) { Specification.new(SpecificationReader.new(repository, Mappers::NullMapper.new)) }
     let(:global_stream) { Stream.new(GLOBAL_STREAM) }
@@ -105,8 +109,8 @@ module RubyEventStore
 
     specify 'append_to_stream returns self' do
       repository
-        .append_to_stream(event = SRecord.new, stream, version_none)
-        .append_to_stream(event = SRecord.new, stream, version_0)
+        .append_to_stream([event = SRecord.new], stream, version_none)
+        .append_to_stream([event = SRecord.new], stream, version_0)
     end
 
     specify 'link_to_stream returns self' do
@@ -114,12 +118,12 @@ module RubyEventStore
       event1 = SRecord.new
       repository
         .append_to_stream([event0, event1], stream, version_none)
-        .link_to_stream(event0.event_id, stream_flow, version_none)
-        .link_to_stream(event1.event_id, stream_flow, version_0)
+        .link_to_stream([event0.event_id], stream_flow, version_none)
+        .link_to_stream([event1.event_id], stream_flow, version_0)
     end
 
     specify 'adds an initial event to a new stream' do
-      repository.append_to_stream(event = SRecord.new, stream, version_none)
+      repository.append_to_stream([event = SRecord.new], stream, version_none)
       expect(read_events_forward(repository).first).to eq(event)
       expect(read_events_forward(repository, stream).first).to eq(event)
       expect(read_events_forward(repository, stream_other)).to be_empty
@@ -127,8 +131,8 @@ module RubyEventStore
 
     specify 'links an initial event to a new stream' do
       repository
-        .append_to_stream(event = SRecord.new, stream, version_none)
-        .link_to_stream(event.event_id, stream_flow, version_none)
+        .append_to_stream([event = SRecord.new], stream, version_none)
+        .link_to_stream([event.event_id], stream_flow, version_none)
 
       expect(read_events_forward(repository, count: 1).first).to eq(event)
       expect(read_events_forward(repository, stream).first).to eq(event)
@@ -494,7 +498,7 @@ module RubyEventStore
             begin
               100.times do |j|
                 eid = "0000000#{i}-#{sprintf("%04d", j)}-0000-0000-000000000000"
-                repository.link_to_stream(eid, stream_flow, version_any)
+                repository.link_to_stream([eid], stream_flow, version_any)
               end
             rescue WrongExpectedEventVersion
               fail_occurred = true
@@ -581,7 +585,7 @@ module RubyEventStore
             100.times do |j|
               begin
                 eid = "0000000#{i}-#{sprintf("%04d", j)}-0000-0000-000000000000"
-                repository.link_to_stream(eid, stream, version_auto)
+                repository.link_to_stream([eid], stream, version_auto)
                 sleep(rand(concurrency_level) / 1000.0)
               rescue WrongExpectedEventVersion, *helper.rescuable_concurrency_test_errors
                 fail_occurred +=1
@@ -607,7 +611,7 @@ module RubyEventStore
 
     it 'appended event is stored in given stream' do
       expected_event = SRecord.new
-      repository.append_to_stream(expected_event, stream, version_any)
+      repository.append_to_stream([expected_event], stream, version_any)
       expect(read_events_forward(repository, count: 1).first).to eq(expected_event)
       expect(read_events_forward(repository, stream).first).to eq(expected_event)
       expect(read_events_forward(repository, stream_other)).to be_empty
@@ -615,14 +619,14 @@ module RubyEventStore
 
     it 'data attributes are retrieved' do
       event = SRecord.new(data: { "order_id" => 3 })
-      repository.append_to_stream(event, stream, version_any)
+      repository.append_to_stream([event], stream, version_any)
       retrieved_event = read_events_forward(repository, count: 1).first
       expect(retrieved_event.data).to eq({ "order_id" => 3 })
     end
 
     it 'metadata attributes are retrieved' do
       event = SRecord.new(metadata: { "request_id" => 3 })
-      repository.append_to_stream(event, stream, version_any)
+      repository.append_to_stream([event], stream, version_any)
       retrieved_event = read_events_forward(repository, count: 1).first
       expect(retrieved_event.metadata).to eq({ "request_id" => 3 })
     end
@@ -633,8 +637,8 @@ module RubyEventStore
         metadata: { "request_id" => 4},
       )
       repository
-        .append_to_stream(event, stream, version_any)
-        .link_to_stream(event.event_id, stream_flow, version_any)
+        .append_to_stream([event], stream, version_any)
+        .link_to_stream([event.event_id], stream_flow, version_any)
       retrieved_event = read_events_forward(repository, stream_flow).first
       expect(retrieved_event.metadata).to eq({ "request_id" => 4 })
       expect(retrieved_event.data).to eq({ "order_id" => 3 })
@@ -642,8 +646,8 @@ module RubyEventStore
     end
 
     it 'does not have deleted streams' do
-      repository.append_to_stream(e1 = SRecord.new, stream, version_none)
-      repository.append_to_stream(e2 = SRecord.new, stream_other, version_none)
+      repository.append_to_stream([e1 = SRecord.new], stream, version_none)
+      repository.append_to_stream([e2 = SRecord.new], stream_other, version_none)
 
       repository.delete_stream(stream)
       expect(read_events_forward(repository, stream)).to be_empty
@@ -653,8 +657,8 @@ module RubyEventStore
 
     it 'does not have deleted streams with linked events' do
       repository
-        .append_to_stream(e1 = SRecord.new, stream, version_none)
-        .link_to_stream(e1.event_id, stream_flow, version_none)
+        .append_to_stream([e1 = SRecord.new], stream, version_none)
+        .link_to_stream([e1.event_id], stream_flow, version_none)
 
       repository.delete_stream(stream_flow)
       expect(read_events_forward(repository, stream_flow)).to be_empty
@@ -663,7 +667,7 @@ module RubyEventStore
 
     it 'has or has not domain event' do
       just_an_id = 'd5c134c2-db65-4e87-b6ea-d196f8f1a292'
-      repository.append_to_stream(SRecord.new(event_id: just_an_id), stream, version_none)
+      repository.append_to_stream([SRecord.new(event_id: just_an_id)], stream, version_none)
 
       expect(repository.has_event?(just_an_id)).to be_truthy
       expect(repository.has_event?(just_an_id.clone)).to be_truthy
@@ -674,9 +678,78 @@ module RubyEventStore
       expect(repository.has_event?(just_an_id.clone)).to be_truthy
     end
 
+    it '#position_in_stream happy path' do
+      skip unless helper.supports_position_queries?
+      repository.append_to_stream([
+        event0 = SRecord.new,
+        event1 = SRecord.new
+      ], stream, version_auto)
+
+      expect(repository.position_in_stream(event0.event_id, stream)).to eq(0)
+      expect(repository.position_in_stream(event1.event_id, stream)).to eq(1)
+    end
+
+    it '#position_in_stream happy path with linking' do
+      skip unless helper.supports_position_queries?
+      repository.append_to_stream([
+        event0 = SRecord.new,
+        event1 = SRecord.new
+      ], stream, version_auto)
+      repository.link_to_stream([
+        event1.event_id,
+        event0.event_id,
+      ], stream_other, version_auto)
+
+      expect(repository.position_in_stream(event0.event_id, stream)).to eq(0)
+      expect(repository.position_in_stream(event1.event_id, stream)).to eq(1)
+      expect(repository.position_in_stream(event1.event_id, stream_other)).to eq(0)
+      expect(repository.position_in_stream(event0.event_id, stream_other)).to eq(1)
+    end
+
+    it '#position_in_stream when event is not in the stream' do
+      skip unless helper.supports_position_queries?
+      just_an_id = 'd5c134c2-db65-4e87-b6ea-d196f8f1a292'
+
+      expect do
+        repository.position_in_stream(just_an_id, stream)
+      end.to raise_error(EventNotFoundInStream)
+    end
+
+    it '#position_in_stream when event is published without position' do
+      skip unless helper.supports_position_queries?
+      repository.append_to_stream([event0 = SRecord.new], stream, version_auto)
+      repository.append_to_stream([event1 = SRecord.new], stream, version_any)
+
+      expect(repository.position_in_stream(event1.event_id, stream)).to eq(nil)
+    end
+
+    it '#global_position happy path' do
+      skip unless helper.supports_position_queries?
+      repository.append_to_stream([
+        event0 = SRecord.new,
+        event1 = SRecord.new
+      ], stream, version_any)
+
+      expect(repository.global_position(event0.event_id)).to be >= 0
+      expect(repository.global_position(event1.event_id)).to be >= 0
+      expect(repository.global_position(event0.event_id)).to be < repository.global_position(event1.event_id)
+    end
+
+    it '#global_position for not existing event' do
+      skip unless helper.supports_position_queries?
+      just_an_id = 'd5c134c2-db65-4e87-b6ea-d196f8f1a292'
+
+      expect do
+        repository.global_position(just_an_id)
+      end.to raise_error do |err|
+        expect(err).to be_a(EventNotFound)
+        expect(err.event_id).to eq(just_an_id)
+      end
+    end
+
     it 'knows last event in stream' do
-      repository.append_to_stream(a =SRecord.new(event_id: '00000000-0000-0000-0000-000000000001'), stream, version_none)
-      repository.append_to_stream(b = SRecord.new(event_id: '00000000-0000-0000-0000-000000000002'), stream, version_0)
+      repository.append_to_stream([a =SRecord.new(event_id: '00000000-0000-0000-0000-000000000001')], stream, version_none)
+      repository.append_to_stream([b = SRecord.new(event_id: '00000000-0000-0000-0000-000000000002')], stream, version_0)
 
       expect(repository.last_stream_event(stream)).to eq(b)
       expect(repository.last_stream_event(stream_other)).to be_nil
@@ -706,11 +779,11 @@ module RubyEventStore
         ab60114c-011d-4d58-ab31-7ba65d99975e
         868cac42-3d19-4b39-84e8-cd32d65c2445
       ].map { |id| SRecord.new(event_id: id) }
-      repository.append_to_stream(SRecord.new, stream_other, version_none)
+      repository.append_to_stream([SRecord.new], stream_other, version_none)
       events.each.with_index do |event, index|
-        repository.append_to_stream(event, stream, ExpectedVersion.new(index - 1))
+        repository.append_to_stream([event], stream, ExpectedVersion.new(index - 1))
       end
-      repository.append_to_stream(SRecord.new, stream_other, version_0)
+      repository.append_to_stream([SRecord.new], stream_other, version_0)
 
       expect(read_events_forward(repository, stream, count: 3)).to eq(events.first(3))
       expect(read_events_forward(repository, stream, count: 100)).to eq(events)
@@ -741,13 +814,13 @@ module RubyEventStore
         ab60114c-011d-4d58-ab31-7ba65d99975e
         868cac42-3d19-4b39-84e8-cd32d65c2445
       ].map { |id| SRecord.new(event_id: id) }
-      repository.append_to_stream(SRecord.new, stream_other, version_none)
+      repository.append_to_stream([SRecord.new], stream_other, version_none)
       events.each.with_index do |event, index|
         repository
-          .append_to_stream(event, stream, ExpectedVersion.new(index - 1))
-          .link_to_stream(event.event_id, stream_flow, ExpectedVersion.new(index - 1))
+          .append_to_stream([event], stream, ExpectedVersion.new(index - 1))
+          .link_to_stream([event.event_id], stream_flow, ExpectedVersion.new(index - 1))
       end
-      repository.append_to_stream(SRecord.new, stream_other, version_0)
+      repository.append_to_stream([SRecord.new], stream_other, version_0)
 
       expect(read_events_forward(repository, stream_flow, count: 3)).to eq(events.first(3))
       expect(read_events_forward(repository, stream_flow, count: 100)).to eq(events)
@@ -768,11 +841,11 @@ module RubyEventStore
       s1 = stream
       s2 = stream_other
       repository
-        .append_to_stream(a = SRecord.new(event_id: '7010d298-ab69-4bb1-9251-f3466b5d1282'), s1, version_none)
-        .append_to_stream(b = SRecord.new(event_id: '34f88aca-aaba-4ca0-9256-8017b47528c5'), s2, version_none)
-        .append_to_stream(c = SRecord.new(event_id: '8e61c864-ceae-4684-8726-97c34eb8fc4f'), s1, version_0)
-        .append_to_stream(d = SRecord.new(event_id: '30963ed9-6349-450b-ac9b-8ea50115b3bd'), s2, version_0)
-        .append_to_stream(e = SRecord.new(event_id: '5bdc58b7-e8a7-4621-afd6-ccb828d72457'), s2, version_1)
+        .append_to_stream([a = SRecord.new(event_id: '7010d298-ab69-4bb1-9251-f3466b5d1282')], s1, version_none)
+        .append_to_stream([b = SRecord.new(event_id: '34f88aca-aaba-4ca0-9256-8017b47528c5')], s2, version_none)
+        .append_to_stream([c = SRecord.new(event_id: '8e61c864-ceae-4684-8726-97c34eb8fc4f')], s1, version_0)
+        .append_to_stream([d = SRecord.new(event_id: '30963ed9-6349-450b-ac9b-8ea50115b3bd')], s2, version_0)
+        .append_to_stream([e = SRecord.new(event_id: '5bdc58b7-e8a7-4621-afd6-ccb828d72457')], s2, version_1)
 
       expect(read_events_forward(repository, s1)).to eq [a,c]
       expect(read_events_backward(repository, s1)).to eq [c,a]
@@ -781,16 +854,16 @@ module RubyEventStore
     it 'reads all stream linked events forward & backward' do
       s1, fs1, fs2 = stream, stream_flow, stream_other
       repository
-        .append_to_stream(a = SRecord.new(event_id: '7010d298-ab69-4bb1-9251-f3466b5d1282'), s1, version_none)
-        .append_to_stream(b = SRecord.new(event_id: '34f88aca-aaba-4ca0-9256-8017b47528c5'), s1, version_0)
-        .append_to_stream(c = SRecord.new(event_id: '8e61c864-ceae-4684-8726-97c34eb8fc4f'), s1, version_1)
-        .append_to_stream(d = SRecord.new(event_id: '30963ed9-6349-450b-ac9b-8ea50115b3bd'), s1, version_2)
-        .append_to_stream(e = SRecord.new(event_id: '5bdc58b7-e8a7-4621-afd6-ccb828d72457'), s1, version_3)
-        .link_to_stream('7010d298-ab69-4bb1-9251-f3466b5d1282', fs1, version_none)
-        .link_to_stream('34f88aca-aaba-4ca0-9256-8017b47528c5', fs2, version_none)
-        .link_to_stream('8e61c864-ceae-4684-8726-97c34eb8fc4f', fs1, version_0)
-        .link_to_stream('30963ed9-6349-450b-ac9b-8ea50115b3bd', fs2, version_0)
-        .link_to_stream('5bdc58b7-e8a7-4621-afd6-ccb828d72457', fs2, version_1)
+        .append_to_stream([a = SRecord.new(event_id: '7010d298-ab69-4bb1-9251-f3466b5d1282')], s1, version_none)
+        .append_to_stream([b = SRecord.new(event_id: '34f88aca-aaba-4ca0-9256-8017b47528c5')], s1, version_0)
+        .append_to_stream([c = SRecord.new(event_id: '8e61c864-ceae-4684-8726-97c34eb8fc4f')], s1, version_1)
+        .append_to_stream([d = SRecord.new(event_id: '30963ed9-6349-450b-ac9b-8ea50115b3bd')], s1, version_2)
+        .append_to_stream([e = SRecord.new(event_id: '5bdc58b7-e8a7-4621-afd6-ccb828d72457')], s1, version_3)
+        .link_to_stream(['7010d298-ab69-4bb1-9251-f3466b5d1282'], fs1, version_none)
+        .link_to_stream(['34f88aca-aaba-4ca0-9256-8017b47528c5'], fs2, version_none)
+        .link_to_stream(['8e61c864-ceae-4684-8726-97c34eb8fc4f'], fs1, version_0)
+        .link_to_stream(['30963ed9-6349-450b-ac9b-8ea50115b3bd'], fs2, version_0)
+        .link_to_stream(['5bdc58b7-e8a7-4621-afd6-ccb828d72457'], fs2, version_1)
 
       expect(read_events_forward(repository, fs1)).to eq [a,c]
       expect(read_events_backward(repository, fs1)).to eq [c,a]
@@ -810,7 +883,7 @@ module RubyEventStore
         868cac42-3d19-4b39-84e8-cd32d65c2445
       ].map { |id| SRecord.new(event_id: id) }
       events.each do |ev|
-        repository.append_to_stream(ev, Stream.new(SecureRandom.uuid), version_none)
+        repository.append_to_stream([ev], Stream.new(SecureRandom.uuid), version_none)
       end
 
       expect(read_events_forward(repository, count: 3)).to eq(events.first(3))
@@ -843,8 +916,8 @@ module RubyEventStore
       ].map { |id| SRecord.new(event_id: id) }
       events.each do |ev|
         repository
-          .append_to_stream(ev, Stream.new(SecureRandom.uuid), version_none)
-          .link_to_stream(ev.event_id, Stream.new(SecureRandom.uuid), version_none)
+          .append_to_stream([ev], Stream.new(SecureRandom.uuid), version_none)
+          .link_to_stream([ev.event_id], Stream.new(SecureRandom.uuid), version_none)
       end
 
       expect(read_events_forward(repository, count: 3)).to eq(events.first(3))
@@ -867,8 +940,8 @@ module RubyEventStore
         96c920b1-cdd0-40f4-907c-861b9fff7d02
         56404f79-0ba0-4aa0-8524-dc3436368ca0
       ].map{|id| SRecord.new(event_id: id) }
-      repository.append_to_stream(events.first, stream, version_none)
-      repository.append_to_stream(events.last,  stream,  version_0)
+      repository.append_to_stream([events.first], stream, version_none)
+      repository.append_to_stream([events.last],  stream,  version_0)
 
       expect(read_events_forward(repository, from: "96c920b1-cdd0-40f4-907c-861b9fff7d02")).to eq([events.last])
       expect(read_events_backward(repository, from: "56404f79-0ba0-4aa0-8524-dc3436368ca0")).to eq([events.first])
@@ -883,13 +956,13 @@ module RubyEventStore
 
     it 'does not allow same event twice in a stream' do
       repository.append_to_stream(
-        SRecord.new(event_id: "a1b49edb-7636-416f-874a-88f94b859bef"),
+        [SRecord.new(event_id: "a1b49edb-7636-416f-874a-88f94b859bef")],
         stream,
         version_none
       )
       expect do
         repository.append_to_stream(
-          SRecord.new(event_id: "a1b49edb-7636-416f-874a-88f94b859bef"),
+          [SRecord.new(event_id: "a1b49edb-7636-416f-874a-88f94b859bef")],
           stream,
           version_0
         )
@@ -898,13 +971,13 @@ module RubyEventStore
 
     it 'does not allow same event twice' do
       repository.append_to_stream(
-        SRecord.new(event_id: "a1b49edb-7636-416f-874a-88f94b859bef"),
+        [SRecord.new(event_id: "a1b49edb-7636-416f-874a-88f94b859bef")],
         stream,
         version_none
       )
       expect do
         repository.append_to_stream(
-          SRecord.new(event_id: "a1b49edb-7636-416f-874a-88f94b859bef"),
+          [SRecord.new(event_id: "a1b49edb-7636-416f-874a-88f94b859bef")],
           stream_other,
           version_none
         )
@@ -912,41 +985,39 @@ module RubyEventStore
     end
 
     it 'does not allow linking same event twice in a stream' do
-      repository.append_to_stream([
-          SRecord.new(event_id: "a1b49edb-7636-416f-874a-88f94b859bef"),
-        ], stream,
+      repository.append_to_stream(
+        [SRecord.new(event_id: "a1b49edb-7636-416f-874a-88f94b859bef")],
+        stream,
         version_none
-      ).link_to_stream("a1b49edb-7636-416f-874a-88f94b859bef", stream_flow, version_none)
+      ).link_to_stream(["a1b49edb-7636-416f-874a-88f94b859bef"], stream_flow, version_none)
       expect do
-        repository.link_to_stream("a1b49edb-7636-416f-874a-88f94b859bef", stream_flow, version_0)
+        repository.link_to_stream(["a1b49edb-7636-416f-874a-88f94b859bef"], stream_flow, version_0)
       end.to raise_error(EventDuplicatedInStream)
     end
 
     it 'allows appending to GLOBAL_STREAM explicitly' do
       event = SRecord.new(event_id: "df8b2ba3-4e2c-4888-8d14-4364855fa80e")
-      repository.append_to_stream(event, global_stream, version_any)
+      repository.append_to_stream([event], global_stream, version_any)
 
       expect(read_events_forward(repository, count: 10)).to eq([event])
     end
 
     specify "events not persisted if append failed" do
-      repository.append_to_stream([
-        SRecord.new,
-      ], stream, version_none)
+      repository.append_to_stream([SRecord.new], stream, version_none)
 
       expect do
-        repository.append_to_stream([
-          SRecord.new(
-            event_id: '9bedf448-e4d0-41a3-a8cd-f94aec7aa763'
-          ),
-        ], stream, version_none)
+        repository.append_to_stream(
+          [SRecord.new(event_id: '9bedf448-e4d0-41a3-a8cd-f94aec7aa763')],
+          stream,
+          version_none
+        )
       end.to raise_error(WrongExpectedEventVersion)
       expect(repository.has_event?('9bedf448-e4d0-41a3-a8cd-f94aec7aa763')).to be_falsey
     end
 
     specify 'linking non-existent event' do
       expect do
-        repository.link_to_stream('72922e65-1b32-4e97-8023-03ae81dd3a27', stream_flow, version_none)
+        repository.link_to_stream(['72922e65-1b32-4e97-8023-03ae81dd3a27'], stream_flow, version_none)
       end.to raise_error do |err|
         expect(err).to be_a(EventNotFound)
         expect(err.event_id).to eq('72922e65-1b32-4e97-8023-03ae81dd3a27')
@@ -966,7 +1037,7 @@ module RubyEventStore
       expect(binary.valid_encoding?).to eq(true)
 
       repository.append_to_stream(
-        event = SRecord.new(data: binary, metadata: binary),
+        [event = SRecord.new(data: binary, metadata: binary)],
         stream,
         version_none
       )
@@ -974,6 +1045,8 @@ module RubyEventStore
 
     specify do
       expect(repository.read(specification.in_batches.result)).to be_kind_of(Enumerator)
+      expect(repository.read(specification.in_batches.as_at.result)).to be_kind_of(Enumerator)
+      expect(repository.read(specification.in_batches.as_of.result)).to be_kind_of(Enumerator)
       events = Array.new(10) { SRecord.new }
       repository.append_to_stream(
         events,
@@ -981,6 +1054,9 @@ module RubyEventStore
         ExpectedVersion.none
       )
       expect(repository.read(specification.in_batches.result)).to be_kind_of(Enumerator)
+      expect(repository.read(specification.in_batches.as_at.result)).to be_kind_of(Enumerator)
+      expect(repository.read(specification.in_batches.as_of.result)).to be_kind_of(Enumerator)
+
     end
 
     specify do
@@ -1185,7 +1261,7 @@ module RubyEventStore
       stream_c = Stream.new('Stream C')
       repository.append_to_stream([event_1, event_2], stream_a, version_any)
       repository.append_to_stream([event_3], stream_b, version_any)
-      repository.link_to_stream(event_1.event_id, stream_c, version_none)
+      repository.link_to_stream([event_1.event_id], stream_c, version_none)
 
       expect(repository.streams_of('8a6f053e-3ce2-4c82-a55b-4d02c66ae6ea')).to eq [stream_a, stream_c]
       expect(repository.streams_of('8cee1139-4f96-483a-a175-2b947283c3c7')).to eq [stream_a]
@@ -1281,7 +1357,7 @@ module RubyEventStore
 
     specify 'timestamp precision' do
       time = Time.utc(2020, 9, 11, 12, 26, 0, 123456)
-      repository.append_to_stream(SRecord.new(timestamp: time), stream, version_none)
+      repository.append_to_stream([SRecord.new(timestamp: time)], stream, version_none)
       event = read_events_forward(repository, count: 1).first
 
       expect(event.timestamp).to eq(time)
@@ -1391,6 +1467,22 @@ module RubyEventStore
       expect(repository.read(specification.as_at.backward.result).map(&:event_id)).to eq [e2, e3, e1]
       expect(repository.read(specification.as_of.result).map(&:event_id)).to eq [e3, e2, e1]
       expect(repository.read(specification.as_of.backward.result).map(&:event_id)).to eq [e1, e2, e3]
+    end
+
+    specify "time order is respected with batches" do
+      repository.append_to_stream([
+        SRecord.new(event_id: e1 = SecureRandom.uuid, timestamp: Time.new(2020,1,1), valid_at: Time.new(2020,1,9)),
+        SRecord.new(event_id: e2 = SecureRandom.uuid, timestamp: Time.new(2020,1,3), valid_at: Time.new(2020,1,6)),
+        SRecord.new(event_id: e3 = SecureRandom.uuid, timestamp: Time.new(2020,1,2), valid_at: Time.new(2020,1,3)),
+      ],
+        Stream.new("Dummy"),
+        ExpectedVersion.any
+      )
+      expect(repository.read(specification.in_batches.result).to_a.flatten.map(&:event_id)).to eq [e1, e2, e3]
+      expect(repository.read(specification.in_batches.as_at.result).to_a.flatten.map(&:event_id)).to eq [e1, e3, e2]
+      expect(repository.read(specification.in_batches.as_at.backward.result).to_a.flatten.map(&:event_id)).to eq [e2, e3, e1]
+      expect(repository.read(specification.in_batches.as_of.result).to_a.flatten.map(&:event_id)).to eq [e3, e2, e1]
+      expect(repository.read(specification.in_batches.as_of.backward.result).to_a.flatten.map(&:event_id)).to eq [e1, e2, e3]
     end
   end
 end

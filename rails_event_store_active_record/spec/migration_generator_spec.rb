@@ -1,19 +1,18 @@
 require 'spec_helper'
 require 'pp'
 require 'fakefs/safe'
+require_relative '../../support/helpers/silence_stdout'
+
 
 module RailsEventStoreActiveRecord
   RSpec.describe MigrationGenerator do
-    around(:each) do |example|
-      current_stdout = $stdout
-      $stdout = StringIO.new
-      example.call
-      $stdout = current_stdout
+    around do |example|
+      SilenceStdout.silence_stdout { example.run }
     end
 
     around do |example|
       FakeFS.with_fresh do
-        FakeFS::FileSystem.clone(File.expand_path('../../', __FILE__))
+        FakeFS::FileSystem.clone(File.expand_path('../../lib/rails_event_store_active_record/generators/templates', __FILE__))
         example.run
       end
     end
@@ -31,20 +30,8 @@ module RailsEventStoreActiveRecord
       File.read('db/migrate/20160809222222_create_event_store_events.rb')
     end
 
-    context 'with Rails 4' do
-      before do
-        stub_const('Rails::VERSION::STRING', '4.2.8')
-      end
-
-      it { is_expected.to match(/ActiveRecord::Migration$/) }
-    end
-
-    context 'with Rails 5' do
-      before do
-        stub_const('Rails::VERSION::STRING', '5.0.0')
-      end
-
-      it { is_expected.to match(/ActiveRecord::Migration\[4\.2\]$/) }
+    it 'uses particular migration version' do
+      expect(subject).to match(/ActiveRecord::Migration\[4\.2\]$/)
     end
 
     it 'uses binary data type for metadata' do

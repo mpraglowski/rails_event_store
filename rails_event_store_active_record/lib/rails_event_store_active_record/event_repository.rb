@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require 'active_support/core_ext/array'
 require 'activerecord-import'
 
 module RailsEventStoreActiveRecord
@@ -11,12 +12,13 @@ module RailsEventStoreActiveRecord
 
       @event_klass, @stream_klass = model_factory.call
       @repo_reader = EventRepositoryReader.new(@event_klass, @stream_klass, serializer)
+      @index_violation_detector = IndexViolationDetector.new(@event_klass.table_name, @stream_klass.table_name)
     end
 
     def append_to_stream(records, stream, expected_version)
       hashes    = []
       event_ids = []
-      Array(records).each do |record|
+      records.each do |record|
         hashes    << import_hash(record, record.serialize(serializer))
         event_ids << record.event_id
       end
@@ -26,7 +28,6 @@ module RailsEventStoreActiveRecord
     end
 
     def link_to_stream(event_ids, stream, expected_version)
-      event_ids = Array(event_ids)
       (event_ids - @event_klass.where(event_id: event_ids).pluck(:event_id)).each do |id|
         raise RubyEventStore::EventNotFound.new(id)
       end
@@ -54,7 +55,7 @@ module RailsEventStoreActiveRecord
     end
 
     def update_messages(records)
-      hashes  = Array(records).map{|record| import_hash(record, record.serialize(serializer)) }
+      hashes  = records.map { |record| import_hash(record, record.serialize(serializer)) }
       for_update = records.map(&:event_id)
       start_transaction do
         existing = @event_klass.where(event_id: for_update).pluck(:event_id, :id).to_h
@@ -67,7 +68,19 @@ module RailsEventStoreActiveRecord
     def streams_of(event_id)
       @stream_klass.where(event_id: event_id)
         .pluck(:stream)
-        .map{|name| RubyEventStore::Stream.new(name)}
+        .map { |name| RubyEventStore::Stream.new(name) }
+    end
+
+    def position_in_stream(event_id, stream)
+      record = @stream_klass.select('position').where(stream: stream.name).find_by(event_id: event_id)
+      raise RubyEventStore::EventNotFoundInStream if record.nil?
+      record.position
+    end
+
+    def global_position(event_id)
+      record = @event_klass.select('id').find_by(event_id: event_id)
+      raise RubyEventStore::EventNotFound.new(event_id) if record.nil?
+      record.id
     end
 
     private
@@ -86,7 +99,6 @@ module RailsEventStoreActiveRecord
             event_id: event_id,
           }
         end
-        fill_ids(in_stream)
         @stream_klass.import(in_stream) unless stream.global?
       end
       self
@@ -108,7 +120,7 @@ module RailsEventStoreActiveRecord
     end
 
     def detect_index_violated(message)
-      IndexViolationDetector.new.detect(message)
+      @index_violation_detector.detect(message)
     end
 
     def import_hash(record, serialized_record)
@@ -124,10 +136,6 @@ module RailsEventStoreActiveRecord
 
     def optimize_timestamp(valid_at, created_at)
       valid_at unless valid_at.eql?(created_at)
-    end
-
-    # Overwritten in a sub-class
-    def fill_ids(_in_stream)
     end
 
     def start_transaction(&block)
