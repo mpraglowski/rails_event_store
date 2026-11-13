@@ -1,0 +1,14 @@
+source "https://rubygems.org"
+gemspec
+
+eval_gemfile "../support/bundler/Gemfile.shared"
+
+gem "ruby_event_store", path: ".."
+
+gem "rack-test"
+gem "capybara", "~> 3.35"
+gem "json-schema"
+gem "rack", "~> 2.0"
+gem "webrick"
+gem "cuprite"
+gem "tailwindcss-ruby", require: false

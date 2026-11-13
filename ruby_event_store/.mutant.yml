@@ -1,1 +1,44 @@
-../.mutant.yml
+# https://github.com/mbj/mutant/blob/master/docs/configuration.md
+
+usage: opensource
+requires:
+  - ruby_event_store
+includes:
+  - lib
+integration:
+  name: rspec
+mutation:
+  operators: light
+  timeout: 10.0
+coverage_criteria:
+  timeout: true
+  process_abort: true
+matcher:
+  subjects:
+    - RubyEventStore*
+  ignore:
+    - RubyEventStore::InMemoryRepository#with_synchronize
+    - RubyEventStore::Client#initialize
+    - RubyEventStore::Client#default_clock
+    - RubyEventStore::Client#default_correlation_id_generator
+    - RubyEventStore::Client#rescue_from_double_json_serialization!
+    - RubyEventStore::Client::Within#add_thread_subscribers
+    - RubyEventStore::Client::Within#add_thread_global_subscribers
+    - RubyEventStore::Client::Within#call
+    - RubyEventStore::Broker#initialize
+    - RubyEventStore::Mappers::InMemoryEncryptionKeyRepository#prepare_encrypt
+    - RubyEventStore::Mappers::EncryptionKey#prepare_encrypt
+    - RubyEventStore::Mappers::EncryptionKey#prepare_decrypt
+    - RubyEventStore::Mappers::EncryptionKey#prepare_auth_data
+    - RubyEventStore::Mappers::EncryptionKey#encrypt_authenticated
+    - RubyEventStore::Mappers::EncryptionKey#ciphertext_from_authenticated
+    - RubyEventStore::Mappers::JSONMapper#initialize
+    - RubyEventStore::Serializers::YAML.load
+    - RubyEventStore::Mappers::EncryptionMapper#initialize
+    - RubyEventStore::Specification#of_types
+    - RubyEventStore::Stream#hash
+    - RubyEventStore::ExpectedVersion#hash
+    - RubyEventStore::Record#hash
+    - RubyEventStore::SerializedRecord#hash
+    - RubyEventStore::SpecificationResult#hash
+    - RubyEventStore::Event#hash

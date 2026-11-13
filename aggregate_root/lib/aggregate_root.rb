@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 
-require 'aggregate_root/version'
-require 'aggregate_root/configuration'
-require 'aggregate_root/transform'
-require 'aggregate_root/default_apply_strategy'
-require 'aggregate_root/repository'
-require 'aggregate_root/instrumented_repository'
+require_relative "aggregate_root/version"
+require_relative "aggregate_root/default_apply_strategy"
+require_relative "aggregate_root/repository"
+require_relative "aggregate_root/instrumented_repository"
+require_relative "aggregate_root/instrumented_apply_strategy"
+require_relative "aggregate_root/snapshot_repository"
 
 module AggregateRoot
   module OnDSL
@@ -13,7 +13,7 @@ module AggregateRoot
 
     def on(*event_klasses, &block)
       event_klasses.each do |event_klass|
-        name = event_klass.to_s
+        name = event_type_for(event_klass)
         raise(ArgumentError, "Anonymous class is missing name") if name.start_with? ANONYMOUS_CLASS
 
         handler_name = "on_#{name}"
@@ -31,7 +31,7 @@ module AggregateRoot
   end
 
   module Constructor
-    def new(*)
+    def new(*, **)
       super.tap do |instance|
         instance.instance_variable_set(:@version, -1)
         instance.instance_variable_set(:@unpublished_events, [])
@@ -59,22 +59,32 @@ module AggregateRoot
     def unpublished_events
       @unpublished_events.each
     end
-  end
 
-  def self.with_default_apply_strategy
-    Module.new do
-      def self.included(host_class)
-        host_class.extend  OnDSL
-        host_class.include AggregateRoot.with_strategy(->{ DefaultApplyStrategy.new })
-      end
+    UNMARSHALED_VARIABLES = %i[@version @unpublished_events]
+
+    def marshal_dump
+      instance_variables
+        .reject { |m| UNMARSHALED_VARIABLES.include? m }
+        .inject({}) do |vars, attr|
+          vars[attr] = instance_variable_get(attr)
+          vars
+        end
+    end
+
+    def marshal_load(vars)
+      vars.each { |attr, value| instance_variable_set(attr, value) unless UNMARSHALED_VARIABLES.include?(attr) }
     end
   end
 
-  def self.with_strategy(strategy)
+  def self.with(strategy: -> { DefaultApplyStrategy.new }, event_type_resolver: ->(value) { value.to_s })
     Module.new do
-      def self.included(host_class)
-        host_class.extend  Constructor
+      define_singleton_method :included do |host_class|
+        host_class.extend Constructor
+        host_class.extend OnDSL if strategy.call.respond_to?(:uses_on_dsl?)
         host_class.include AggregateMethods
+        host_class.define_singleton_method :event_type_for do |value|
+          event_type_resolver.call(value)
+        end
       end
 
       define_method :apply_strategy do
@@ -84,6 +94,6 @@ module AggregateRoot
   end
 
   def self.included(host_class)
-    host_class.include with_default_apply_strategy
+    host_class.include with
   end
 end

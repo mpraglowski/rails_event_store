@@ -21,7 +21,7 @@ module RubyEventStore
 
     def initialize(version)
       @version = version
-      invalid_version! unless [Integer, :any, :none, :auto].any? {|i| i === version}
+      invalid_version! unless [Integer, :any, :none, :auto].any? { |i| i === version }
     end
 
     def any?
@@ -49,19 +49,12 @@ module RubyEventStore
       end
     end
 
-    BIG_VALUE = 0b110111100100000010010010110011101011000101010101001100100110011
-    private_constant :BIG_VALUE
-
     def hash
-      [
-        self.class,
-        version
-      ].hash ^ BIG_VALUE
+      version.hash ^ self.class.hash
     end
 
     def ==(other_expected_version)
-      other_expected_version.instance_of?(self.class) &&
-        other_expected_version.version.equal?(version)
+      other_expected_version.instance_of?(self.class) && other_expected_version.version.equal?(version)
     end
 
     alias_method :eql?, :==

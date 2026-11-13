@@ -1,4 +1,6 @@
-require_relative 'silence_warnings'
+# frozen_string_literal: true
+
+require_relative "silence_warnings"
 
 RSpec.configure do |config|
   config.include SilenceWarnings
@@ -9,10 +11,12 @@ RSpec.configure do |config|
   config.mock_with :rspec do |mocks|
     mocks.verify_partial_doubles = true
   end
-  config.shared_context_metadata_behavior     = :apply_to_host_groups
-  config.example_status_persistence_file_path = '.rspec_status'
+  config.shared_context_metadata_behavior = :apply_to_host_groups
+  config.example_status_persistence_file_path = ".rspec_status"
   config.disable_monkey_patching!
 
   config.order = :random
   Kernel.srand config.seed
+
+  config.before(:each) { RubyEventStore::Deprecations.reset! if defined?(RubyEventStore::Deprecations) }
 end

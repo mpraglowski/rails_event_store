@@ -1,16 +1,51 @@
 {
+  "name": "docusaurus",
+  "version": "0.0.0",
   "private": true,
   "scripts": {
-    "watch": "NODE_ENV=development parcel watch --out-dir .tmp/dist/ source/index.js",
-    "build": "NODE_ENV=production  parcel build --out-dir .tmp/dist/ source/index.js"
+    "docusaurus": "docusaurus",
+    "start": "docusaurus start",
+    "build": "docusaurus build",
+    "swizzle": "docusaurus swizzle",
+    "deploy": "docusaurus deploy",
+    "clear": "docusaurus clear",
+    "serve": "docusaurus serve",
+    "write-translations": "docusaurus write-translations",
+    "write-heading-ids": "docusaurus write-heading-ids"
+  },
+  "dependencies": {
+    "@docusaurus/core": "^3.8.1",
+    "@docusaurus/preset-classic": "^3.8.1",
+    "@docusaurus/theme-mermaid": "^3.8.1",
+    "@mdx-js/react": "^3.0.0",
+    "clsx": "^2.0.0",
+    "mermaid": "^11.6.0",
+    "prism-react-renderer": "^2.3.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-spring": "^9.7.3"
   },
   "devDependencies": {
-    "@babel/core": "^7.12.9",
-    "countup.js": "^2.0.4",
-    "parcel-bundler": "^1.11.0",
-    "postcss": "^7.0.0",
-    "postcss-modules": "^3.2.2",
-    "postcss-url": "^9.0.0",
-    "tailwindcss": "< 2.0.0"
+    "@docusaurus/module-type-aliases": "^3.8.1",
+    "@docusaurus/types": "^3.8.1",
+    "@tailwindcss/typography": "^0.5.15",
+    "chokidar-cli": "^3.0.0",
+    "raw-loader": "^4.0.2",
+    "tailwindcss": "^3.4.5"
+  },
+  "browserslist": {
+    "production": [
+      ">0.5%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 3 chrome version",
+      "last 3 firefox version",
+      "last 5 safari version"
+    ]
+  },
+  "engines": {
+    "node": ">=18.0"
   }
 }

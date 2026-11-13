@@ -1,0 +1,47 @@
+# https://github.com/mbj/mutant/blob/master/docs/configuration.md
+
+usage: opensource
+jobs: 1
+requires:
+  - ruby_event_store/outbox
+  - ruby_event_store/outbox/cli
+includes:
+  - lib
+integration:
+  name: rspec
+mutation:
+  operators: light
+  timeout: 10.0
+coverage_criteria:
+  process_abort: true
+  timeout: true
+matcher:
+  subjects:
+    - RubyEventStore::Outbox*
+  ignore:
+    - RubyEventStore::Outbox::CLI*
+    - RubyEventStore::Outbox::SidekiqProducer#call
+    - RubyEventStore::Outbox::SidekiqProducer#sidekiq_client
+    - RubyEventStore::Outbox::SidekiqProcessor#process
+    - RubyEventStore::Outbox::SidekiqProcessor#after_batch
+    - RubyEventStore::Outbox::SidekiqProcessor#ensure_that_sidekiq_knows_about_all_queues
+    - RubyEventStore::Outbox::SidekiqScheduler#initialize
+    - RubyEventStore::Outbox::Metrics.from_url
+    - RubyEventStore::Outbox::FetchSpecification#initialize
+    - RubyEventStore::Outbox::FetchSpecification#hash
+    - RubyEventStore::Outbox::FetchSpecification#==
+    - RubyEventStore::Outbox::Consumer#retrieve_batch
+    - RubyEventStore::Outbox::Consumer#refresh_lock_for_process
+    - RubyEventStore::Outbox::Consumer#process
+    - RubyEventStore::Outbox::Consumer#initialize
+    - RubyEventStore::Outbox::Consumer#handle_split
+    - RubyEventStore::Outbox::Consumer#log_error
+    - RubyEventStore::Outbox::Consumer#handle_failure
+    - RubyEventStore::Outbox::Configuration*
+    - RubyEventStore::Outbox::Consumer#get_remaining_count
+    - RubyEventStore::Outbox::CleanupStrategies::None*
+    - RubyEventStore::Outbox::Repository*
+    - RubyEventStore::Outbox::Runner#initialize
+    - RubyEventStore::Outbox::Runner#run
+    - RubyEventStore::Outbox::Runner#prepare_traps
+    - RubyEventStore::Outbox::Runner#initiate_graceful_shutdown

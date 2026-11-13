@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require 'active_job'
+require "active_job"
 
 module RailsEventStore
   class ActiveJobScheduler
@@ -9,14 +9,23 @@ module RailsEventStore
     end
 
     def call(klass, record)
-      klass.perform_later(record.serialize(serializer).to_h)
+      klass.perform_later(payload_for(record))
     end
 
     def verify(subscriber)
-      Class === subscriber && !!(subscriber < ActiveJob::Base)
+      if Class === subscriber
+        !!(subscriber < ActiveJob::Base)
+      else
+        subscriber.instance_of?(ActiveJob::ConfiguredJob)
+      end
     end
 
     private
+
+    def payload_for(record)
+      record.serialize(serializer).to_h.transform_keys(&:to_s)
+    end
+
     attr_reader :serializer
   end
 end

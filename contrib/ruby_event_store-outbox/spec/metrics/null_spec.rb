@@ -1,8 +1,10 @@
-require 'spec_helper'
+# frozen_string_literal: true
+
+require "spec_helper"
 
 module RubyEventStore
   module Outbox
-    RSpec.describe Metrics::Null do
+    ::RSpec.describe Metrics::Null do
       specify "doesnt do anything" do
         null_metrics = Metrics::Null.new
 

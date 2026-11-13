@@ -1,0 +1,139 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+/**
+ * Any CSS included here will be global. The classic template
+ * bundles Infima by default. Infima is a CSS framework designed to
+ * work well for content-centric websites.
+ */
+
+/* You can override the default Infima variables here. */
+:root {
+  --ifm-color-primary: #CA3A31;
+  --ifm-color-primary-dark: #a22e27;
+  --ifm-color-primary-darker: #79231d;
+  --ifm-color-primary-darkest: #511714;
+  --ifm-color-primary-light: #d5615a;
+  --ifm-color-primary-lighter: #df8983;
+  --ifm-color-primary-lightest: #eab0ad;
+  --ifm-code-font-size: 95%;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.1);
+  --ifm-footer-background-color: #141414;
+  --ifm-font-family-base: ui-sans-serif,system-ui,sans-serif,Apple Color Emoji,Segoe UI Emoji,Segoe UI Symbol,Noto Color Emoji;
+  --ifm-font-family-monospace: ui-monospace,monospace;
+  --ifm-font-family-heading: ui-sans-serif,system-ui,sans-serif,Apple Color Emoji,Segoe UI Emoji,Segoe UI Symbol,Noto Color Emoji;
+  
+}
+
+/* For readability concerns, you should choose a lighter palette in dark mode. */
+[data-theme='dark'] {
+  --ifm-color-primary: #CA3A31;
+  --ifm-color-primary-dark: #a22e27;
+  --ifm-color-primary-darker: #79231d;
+  --ifm-color-primary-darkest: #511714;
+  --ifm-color-primary-light: #d5615a;
+  --ifm-color-primary-lighter: #df8983;
+  --ifm-color-primary-lightest: #eab0ad;
+  --docusaurus-highlighted-code-line-bg: rgba(0, 0, 0, 0.3);
+}
+
+@layer base {
+  img, svg, video, canvas, audio, iframe, embed, object {
+    @apply inline-block;
+  }
+  .prose :where(code):not(:where([class~="not-prose"],[class~="not-prose"] *))::before, .prose :where(code):not(:where([class~="not-prose"],[class~="not-prose"] *))::after  {
+    content: none !important;
+  }
+  .prose :where(td,th){
+    @apply !px-4;
+  }
+}
+
+
+.theme-doc-version-badge {
+  margin-bottom: 1rem;
+}
+
+.footer--dark {
+  background-color: #141414;
+}
+
+
+.menu__link--sublist-caret {
+  font-weight: bold;
+  text-transform: uppercase;
+  font-size: 0.875rem;
+}
+
+.menu__list-item:not(:first-child) {
+  margin-top: .25rem;
+}
+
+
+
+
+.markdown li {
+  margin-bottom: .75rem;
+}
+
+.markdown code:not([class*="codeBlock"]) {
+  border-radius: .25rem;
+  padding: .25rem .5rem;
+  font-weight: 400;
+  background-color: #f7f7f7;    
+  color: #586e75;
+  border: none;
+  font-size: 0.875rem;
+}
+
+.markdown code[class*="codeBlock"] {
+  font-size: 0.875rem;
+}
+
+.theme-doc-sidebar-container {
+  --ifm-font-size-base: 0.125rem;
+}
+
+.theme-doc-sidebar-container .menu__list {
+  margin-left: 0;
+  padding-left: 0;
+}
+.theme-doc-sidebar-container .menu__link {
+  font-size: 0.875rem;
+}
+
+.theme-doc-sidebar-container .menu__link--sublist-caret:after {
+  scale: 0.625;
+}
+
+
+.theme-doc-sidebar-container .theme-doc-sidebar-item-category {
+  margin-bottom: 1.25rem;
+}
+
+
+
+@media (min-width: 64rem) {
+  .navbar__inner, .docs-wrapper .main-wrapper {
+    margin: 0 auto;
+    width: 100%;
+    max-width: 64rem;
+  }
+  .navbar__inner {
+    padding: 0 1rem;
+  }
+}
+
+@media (min-width: 80rem) {
+  .navbar__inner, .docs-wrapper .main-wrapper {
+    max-width: 80rem;
+  }
+}
+
+@media (min-width: 96rem) {
+  .navbar__inner, .docs-wrapper .main-wrapper {
+    max-width: 96rem;
+  }
+}

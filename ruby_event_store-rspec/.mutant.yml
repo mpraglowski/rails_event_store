@@ -1,0 +1,26 @@
+# https://github.com/mbj/mutant/blob/master/docs/configuration.md
+
+usage: opensource
+requires:
+  - ruby_event_store/rspec
+includes:
+  - lib
+integration:
+  name: rspec
+mutation:
+  operators: light
+coverage_criteria:
+  process_abort: true
+matcher:
+  subjects:
+    - RubyEventStore::RSpec*
+  ignore:
+    - RubyEventStore::RSpec::Matchers#differ
+    - RubyEventStore::RSpec::Matchers#formatter
+    - RubyEventStore::RSpec::Matchers#have_published
+    - RubyEventStore::RSpec::Matchers#have_applied
+    - RubyEventStore::RSpec::Matchers#have_subscribed_to_events
+    - RubyEventStore::RSpec::Matchers#publish
+    - RubyEventStore::RSpec::Matchers#be_an_event
+    - RubyEventStore::RSpec::Publish#last_event
+    - RubyEventStore::RSpec::Matchers::ListPhraser.all_but_last

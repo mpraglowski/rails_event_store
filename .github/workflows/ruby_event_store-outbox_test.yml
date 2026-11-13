@@ -1,0 +1,116 @@
+name: ruby_event_store-outbox_test
+on:
+  workflow_dispatch:
+  repository_dispatch:
+    types:
+    - script
+  push:
+    branches:
+    - master
+    paths:
+    - contrib/ruby_event_store-outbox/**
+    - ".github/workflows/ruby_event_store-outbox_test.yml"
+    - support/**
+    - "!support/bundler/**"
+    - "!support/ci/**"
+  pull_request:
+    paths:
+    - contrib/ruby_event_store-outbox/**
+    - ".github/workflows/ruby_event_store-outbox_test.yml"
+    - support/**
+    - "!support/bundler/**"
+    - "!support/ci/**"
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      WORKING_DIRECTORY: contrib/ruby_event_store-outbox
+      RUBY_VERSION: "${{ matrix.ruby_version }}"
+      BUNDLE_GEMFILE: "${{ matrix.bundle_gemfile }}"
+      DATABASE_URL: "${{ matrix.database_url }}"
+    services:
+      mysql_8_4:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: rails_event_store
+          MYSQL_ROOT_PASSWORD: secret
+        ports:
+        - 10084:3306
+        options: --health-cmd "mysqladmin ping" --health-interval 10s --health-timeout 5s --health-retries 5
+      mysql_9_7:
+        image: mysql:9.7
+        env:
+          MYSQL_DATABASE: rails_event_store
+          MYSQL_ROOT_PASSWORD: secret
+        ports:
+        - 10097:3306
+        options: --health-cmd "mysqladmin ping" --health-interval 10s --health-timeout 5s --health-retries 5
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - ruby_version: ruby-4.0
+          bundle_gemfile: Gemfile
+          database_url: sqlite3:db.sqlite3
+        - ruby_version: ruby-3.4
+          bundle_gemfile: Gemfile
+          database_url: sqlite3:db.sqlite3
+        - ruby_version: ruby-3.3
+          bundle_gemfile: Gemfile
+          database_url: sqlite3:db.sqlite3
+        - ruby_version: ruby-4.0
+          bundle_gemfile: Gemfile.sidekiq_7
+          database_url: sqlite3:db.sqlite3
+        - ruby_version: ruby-4.0
+          bundle_gemfile: Gemfile
+          database_url: mysql2://root:secret@127.0.0.1:10084/rails_event_store
+        - ruby_version: ruby-4.0
+          bundle_gemfile: Gemfile
+          database_url: mysql2://root:secret@127.0.0.1:10097/rails_event_store
+        - ruby_version: ruby-4.0
+          bundle_gemfile: Gemfile.rails_8_0
+          database_url: sqlite3:db.sqlite3
+        - ruby_version: ruby-4.0
+          bundle_gemfile: Gemfile.rails_8_0
+          database_url: mysql2://root:secret@127.0.0.1:10084/rails_event_store
+        - ruby_version: ruby-4.0
+          bundle_gemfile: Gemfile.rails_8_0
+          database_url: mysql2://root:secret@127.0.0.1:10097/rails_event_store
+        - ruby_version: ruby-3.4
+          bundle_gemfile: Gemfile.rails_7_2
+          database_url: sqlite3:db.sqlite3
+        - ruby_version: ruby-3.4
+          bundle_gemfile: Gemfile.rails_7_2
+          database_url: mysql2://root:secret@127.0.0.1:10084/rails_event_store
+        - ruby_version: ruby-3.4
+          bundle_gemfile: Gemfile.rails_7_2
+          database_url: mysql2://root:secret@127.0.0.1:10097/rails_event_store
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+    - uses: cachix/install-nix-action@v31
+      with:
+        nix_path: nixpkgs=channel:nixos-unstable
+    - uses: cachix/cachix-action@v14
+      with:
+        name: railseventstore
+        authToken: "${{ secrets.CACHIX_AUTH_TOKEN }}"
+    - run: test -e ${{ env.BUNDLE_GEMFILE }}.lock
+      working-directory: "${{ env.WORKING_DIRECTORY }}"
+    - uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: "${{ env.RUBY_VERSION }}"
+        bundler-cache: true
+        working-directory: "${{ env.WORKING_DIRECTORY }}"
+    - run: |
+        nix-shell --run "make test" -E"
+          with import <nixpkgs> { };
+          mkShell {
+            inputsFrom = [
+              (import ../../support/nix/redis.nix)
+            ];
+          }
+        "
+      working-directory: "${{ env.WORKING_DIRECTORY }}"

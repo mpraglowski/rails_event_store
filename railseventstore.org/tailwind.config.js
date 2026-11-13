@@ -1,19 +1,27 @@
+const { fontFamily } = require("tailwindcss/defaultTheme");
+
+/** @type {import('tailwindcss').Config} */
 module.exports = {
-  future: {
-    // removeDeprecatedGapUtilities: true,
-    // purgeLayersByDefault: true,
-  },
-  purge: [
-    './source/**/*.html',
-    './source/*.html',
-    './source/**/*.md',
-    './source/*.md',
-    './source/**/*.erb',
-    './source/*.erb',
-  ],
+ 
+  darkMode: ["selector", '[data-theme="dark"]'],
+  content: ["./src/**/*.{js,jsx,tsx,html}", "./docs/**/*.{md,mdx}"],
   theme: {
-    extend: {},
+    extend: {
+      fontFamily: {
+        sans: ['"Inter"', ...fontFamily.sans],
+        jakarta: ['"Plus Jakarta Sans"', ...fontFamily.sans],
+        mono: ['"Fira Code"', ...fontFamily.mono],
+      },
+      borderRadius: {
+        sm: "4px",
+      },
+      colors: {
+        res: "#BB4539",
+      },
+    },
   },
-  variants: {},
-  plugins: [],
-}
+  safelist: ["mt-8", "w-20", "-translate-y-[3px]", "max-w-4xl"],
+  plugins: [
+    require('@tailwindcss/typography'),
+  ],
+};

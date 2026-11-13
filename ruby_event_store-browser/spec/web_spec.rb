@@ -1,0 +1,558 @@
+# frozen_string_literal: true
+
+require "spec_helper"
+require "tmpdir"
+
+module RubyEventStore
+  ::RSpec.describe Browser do
+    include Browser::IntegrationHelpers
+
+    specify { expect(web_client.get("/")).to be_redirect }
+
+    specify do
+      response = web_client.get("/")
+      expect(response.location).to end_with("/streams/all")
+      expect(response.body).to eq("")
+    end
+
+    specify { expect(web_client.get("/streams/all")).to be_ok }
+
+    specify { expect(web_client.get("/streams/all").content_type).to eq("text/html;charset=utf-8") }
+
+    specify do
+      event_store.append(DummyEvent.new, stream_name: "test-stream")
+      expect(web_client.get("/streams/test-stream").body).to include("Events in test-stream")
+    end
+
+    specify do
+      event_store.append(event = DummyEvent.new)
+      expect(web_client.get("/streams/all").body).to include(event.event_id)
+    end
+
+    specify "unknown paths get the styled not found page" do
+      response = web_client.post("/")
+      expect(response).to be_not_found
+      expect(response.body).to include("Page not found")
+      expect(response.body).to include("<title>RubyEventStore::Browser - Not found</title>")
+      expect(response.body).to include("http://www.example.com")
+    end
+
+    specify do
+      event_store.append(event = DummyEvent.new)
+      expect(web_client.get("/events/#{event.event_id}")).to be_ok
+    end
+
+    specify do
+      event_store.append(event = DummyEvent.new)
+      response = web_client.get("/events/#{event.event_id}")
+      expect(response.body).to include(event.event_id)
+      expect(response.body).to include(event.metadata[:timestamp].iso8601(RubyEventStore::TIMESTAMP_PRECISION))
+      expect(response.body).to include("valid_at")
+    end
+
+    specify "event page escapes HTML in event data keys and values" do
+      malicious_key = "<img data-xss-key src=x>"
+      malicious_value = "<script>document.body.dataset.xss=1</script>"
+      event_store.append(event = DummyEvent.new(data: { malicious_key => malicious_value }))
+
+      body = web_client.get("/events/#{event.event_id}").body
+
+      expect(body).not_to include(malicious_key, malicious_value)
+      expect(body).to include("&lt;img data-xss-key src=x&gt;", "&lt;script&gt;document.body.dataset.xss=1&lt;/script&gt;")
+    end
+
+    specify "event page lists streams the event belongs to" do
+      event_store.append(event = DummyEvent.new, stream_name: "my-stream")
+      expect(web_client.get("/events/#{event.event_id}").body).to include("my-stream")
+    end
+
+    specify "pagination links contain stream name, position and count" do
+      event_store.append(Array.new(Browser::PAGE_SIZE + 1) { DummyEvent.new }, stream_name: "my-stream")
+      body = web_client.get("/streams/my-stream").body
+      expect(body).to include("streams/my-stream?page%5Bposition%5D")
+      expect(body).to include("page%5Bcount%5D=#{Browser::PAGE_SIZE}")
+    end
+
+    specify "uses page count param from query string" do
+      e1 = DummyEvent.new
+      e2 = DummyEvent.new
+      event_store.append([e1, e2])
+
+      body = web_client.get("/streams/all?page%5Bcount%5D=1").body
+      expect(body).to include(e2.event_id)
+      expect(body).not_to include(e1.event_id)
+    end
+
+    specify "event page links to parent event via causation_id" do
+      parent = DummyEvent.new
+      child = DummyEvent.new(metadata: { causation_id: parent.event_id })
+      event_store.append([parent, child])
+      body = web_client.get("/events/#{child.event_id}").body
+      expect(body).to include("Parent event:")
+      expect(body).to include(parent.event_id)
+    end
+
+    specify "event page lists events caused by this event" do
+      parent = DummyEvent.new
+      child = DummyEvent.new
+      event_store.append([parent, child])
+      event_store.link([child.event_id], stream_name: "$by_causation_id_#{parent.event_id}")
+      body = web_client.get("/events/#{parent.event_id}").body
+      expect(body).to include(child.event_id)
+    end
+
+    specify "event page caused_by shows only directly caused events" do
+      parent = DummyEvent.new
+      child = DummyEvent.new
+      unrelated = DummyEvent.new
+      event_store.append([parent, child, unrelated])
+      event_store.link([child.event_id], stream_name: "$by_causation_id_#{parent.event_id}")
+      body = web_client.get("/events/#{parent.event_id}").body
+      expect(body).to include(child.event_id)
+      expect(body).not_to include(unrelated.event_id)
+    end
+
+    specify "event page lists streams in sorted order" do
+      event = DummyEvent.new
+      event_store.append(event, stream_name: "z-first")
+      event_store.link(event.event_id, stream_name: "a-second")
+      body = web_client.get("/events/#{event.event_id}").body
+      expect(body.index("a-second")).to be < body.index("z-first")
+    end
+
+    specify "event page caused_by lists most recent caused events first" do
+      parent = DummyEvent.new
+      first_child = DummyEvent.new
+      second_child = DummyEvent.new
+      event_store.append([parent, first_child, second_child])
+      event_store.link([first_child.event_id], stream_name: "$by_causation_id_#{parent.event_id}")
+      event_store.link([second_child.event_id], stream_name: "$by_causation_id_#{parent.event_id}")
+      body = web_client.get("/events/#{parent.event_id}").body
+      expect(body.index(second_child.event_id)).to be < body.index(first_child.event_id)
+    end
+
+    specify "event page caused_by is limited to PAGE_SIZE" do
+      parent = DummyEvent.new
+      children = Array.new(Browser::PAGE_SIZE + 1) { DummyEvent.new }
+      event_store.append([parent, *children])
+      children.each { |c| event_store.link([c.event_id], stream_name: "$by_causation_id_#{parent.event_id}") }
+      body = web_client.get("/events/#{parent.event_id}").body
+      expect(body).to include("results may be truncated")
+    end
+
+    specify "not found page uses absolute url from request for assets" do
+      response = web_client.get("/events/00000000-0000-0000-0000-000000000000")
+      expect(response.body).to include("http://www.example.com")
+    end
+
+    specify "not found page sets the page title" do
+      response = web_client.get("/events/00000000-0000-0000-0000-000000000000")
+      expect(response.body).to include("<title>RubyEventStore::Browser - Not found</title>")
+    end
+
+    specify "stream page sets the page title" do
+      expect(web_client.get("/streams/test-stream").body).to include(
+        "<title>RubyEventStore::Browser - Stream test-stream</title>",
+      )
+    end
+
+    specify "stream page escapes the stream name in the page title" do
+      stream_name = %q[</title><script>window.streamNameInjected = true</script>]
+      body = web_client.get("/streams/#{ERB::Util.url_encode(stream_name)}").body
+
+      expect(body).to include(
+        "<title>RubyEventStore::Browser - Stream &lt;/title&gt;&lt;script&gt;window.streamNameInjected = true&lt;/script&gt;</title>",
+      )
+      expect(body).not_to include("</title><script>")
+    end
+
+    specify "stream page with non-ASCII stream name" do
+      event_store.publish(event = DummyEvent.new, stream_name: "zażółć")
+
+      body = web_client.get("/streams/#{ERB::Util.url_encode("zażółć")}").body
+
+      expect(body).to include("Events in zażółć")
+      expect(body).to include(event.event_id)
+    end
+
+    specify "stream page keeps event id inside link attributes" do
+      event_store.publish(DummyEvent.new(event_id: %q[x" data-event-id-injection="1]), stream_name: "dummy")
+
+      body = web_client.get("/streams/dummy").body
+
+      expect(body).not_to include("data-event-id-injection=\"1\"")
+    end
+
+    specify "event page sets the page title" do
+      event_store.append(event = DummyEvent.new)
+      expect(web_client.get("/events/#{event.event_id}").body).to include(
+        "<title>RubyEventStore::Browser - Event #{event.event_id}</title>",
+      )
+    end
+
+    specify "related_streams_query is called with the stream name" do
+      called_with = []
+      app =
+        Browser::App.for(
+          event_store_locator: -> { event_store },
+          related_streams_query: ->(name) { called_with << name; [] },
+        )
+      Rack::MockRequest.new(app).get("/streams/my-stream")
+      expect(called_with).to include("my-stream")
+    end
+
+    specify do
+      response = web_client.get("/events/00000000-0000-0000-0000-000000000000")
+      expect(response).to be_not_found
+      expect(response.content_type).to eq("text/html;charset=utf-8")
+      expect(response.body).to include("There&#39;s no event with given ID")
+      expect(response.body.scan("<!DOCTYPE").size).to eq(1)
+    end
+
+    specify "app can override chosen browser views, missing ones fall back" do
+      Dir.mktmpdir do |views_root|
+        Dir.mkdir(File.join(views_root, "streams"))
+        File.write(File.join(views_root, "streams/show.html.erb"), "<h1>Custom stream <%= h(stream_name) %></h1>")
+        app = Browser::App.for(event_store_locator: -> { event_store }, views_root: views_root)
+        client = Rack::MockRequest.new(app)
+
+        response = client.get("/streams/all")
+        expect(response.body).to include("<h1>Custom stream all</h1>")
+        expect(response.body.scan("<!DOCTYPE").size).to eq(1)
+
+        event_store.append(event = DummyEvent.new)
+        expect(client.get("/events/#{event.event_id}").body).to include("Raw Data")
+      end
+    end
+
+    specify "app views take precedence over extension views" do
+      Dir.mktmpdir do |app_views|
+        Dir.mktmpdir do |extension_views|
+          File.write(File.join(app_views, "layout.html.erb"), "app chrome <%= content %>")
+          File.write(File.join(app_views, "hello.html.erb"), "app hello")
+          File.write(File.join(extension_views, "hello.html.erb"), "extension hello <%= h(name) %>")
+          extension =
+            Class.new do
+              attr_reader :views_root
+
+              def initialize(views_root)
+                @views_root = views_root
+              end
+
+              def register_routes(router, context)
+                router.add_route("GET", "/hello") { |_, urls| context.render("hello", urls: urls, name: "world") }
+              end
+            end.new(extension_views)
+          app =
+            Browser::App.for(event_store_locator: -> { event_store }, views_root: app_views, extensions: [extension])
+
+          body = Rack::MockRequest.new(app).get("/hello").body
+          expect(body).to include("app hello")
+          expect(body).to include("app chrome")
+          expect(body).not_to include("extension hello")
+        end
+      end
+    end
+
+    specify "extensions can register their own routes" do
+      extension =
+        Class.new do
+          def register_routes(router, context)
+            router.add_route("GET", "/custom") do |_, _|
+              [200, { "content-type" => "text/plain" }, ["events: #{context.event_store.read.count}"]]
+            end
+          end
+        end.new
+      app = Browser::App.for(event_store_locator: -> { event_store }, extensions: [extension])
+      event_store.append(DummyEvent.new)
+
+      response = Rack::MockRequest.new(app).get("/custom")
+      expect(response.status).to eq(200)
+      expect(response.body).to eq("events: 1")
+    end
+
+    specify "extensions can contribute links on the stream page" do
+      extension =
+        Class.new do
+          def stream_links(stream_name, urls)
+            return [] unless stream_name.eql?("special")
+            [{ label: "Inspect stream", url: "#{urls.app_url}/inspect/#{stream_name}" }]
+          end
+        end.new
+      app = Browser::App.for(event_store_locator: -> { event_store }, extensions: [extension])
+
+      expect(Rack::MockRequest.new(app).get("/streams/special").body).to include("Inspect stream")
+      expect(Rack::MockRequest.new(app).get("/streams/other").body).not_to include("Inspect stream")
+    end
+
+    specify "extensions can contribute links on the event page" do
+      extension =
+        Class.new do
+          def event_links(event, urls)
+            return [] unless event.metadata.key?(:causation_id)
+            [{ label: "Trace causation", url: "#{urls.app_url}/trace/#{event.event_id}" }]
+          end
+        end.new
+      app = Browser::App.for(event_store_locator: -> { event_store }, extensions: [extension])
+      plain = DummyEvent.new
+      caused = DummyEvent.new(metadata: { causation_id: plain.event_id })
+      event_store.append([plain, caused])
+      client = Rack::MockRequest.new(app)
+
+      body = client.get("/events/#{caused.event_id}").body
+      expect(body).to include("Trace causation")
+      expect(body).to include("/trace/#{caused.event_id}")
+      expect(client.get("/events/#{plain.event_id}").body).not_to include("Trace causation")
+    end
+
+    specify "extensions can contribute links to the top navigation" do
+      extension =
+        Class.new do
+          def nav_links(urls)
+            [{ label: "Processes", url: "#{urls.app_url}/processes" }]
+          end
+        end.new
+      app = Browser::App.for(event_store_locator: -> { event_store }, extensions: [extension])
+      client = Rack::MockRequest.new(app)
+
+      body = client.get("/streams/all").body
+      expect(body).to include(">Processes</a>")
+      expect(body).to include('href="http://example.org/processes"')
+
+      not_found = client.get("/events/00000000-0000-0000-0000-000000000000")
+      expect(not_found.status).to eq(404)
+      expect(not_found.body).to include(">Processes</a>")
+    end
+
+    specify "extension link urls cannot break out of the href attribute" do
+      extension =
+        Class.new do
+          def stream_links(stream_name, urls)
+            [{ label: "Inspect", url: %(#{urls.app_url}/inspect/x" onmouseover="alert(1)) }]
+          end
+        end.new
+      app = Browser::App.for(event_store_locator: -> { event_store }, extensions: [extension])
+
+      body = Rack::MockRequest.new(app).get("/streams/special").body
+      expect(body).not_to include('onmouseover="alert(1)')
+      expect(body).to include("/inspect/x&quot; onmouseover=&quot;alert(1)")
+    end
+
+    specify "extension assets are served and linked in the layout" do
+      Dir.mktmpdir do |assets_root|
+        Dir.mkdir(File.join(assets_root, "nested"))
+        File.write(File.join(assets_root, "extension.css"), ".lane { color: red }")
+        File.write(File.join(assets_root, "nested/extension.js"), "console.log('hi')")
+        File.write(File.join(assets_root, "logo.png"), "not really a png")
+        extension =
+          Class.new do
+            attr_reader :assets_root
+
+            def initialize(assets_root)
+              @assets_root = assets_root
+            end
+          end.new(assets_root)
+        app = Browser::App.for(event_store_locator: -> { event_store }, extensions: [extension])
+        client = Rack::MockRequest.new(Rack::Lint.new(app))
+
+        body = client.get("/streams/all").body
+        expect(body).to include('href="http://example.org/extension_assets/0/extension.css"')
+        expect(body).to include(
+          '<script type="module" src="http://example.org/extension_assets/0/nested/extension.js"></script>',
+        )
+        expect(body).not_to include("logo.png")
+
+        stylesheet = client.get("/extension_assets/0/extension.css")
+        expect(stylesheet.status).to eq(200)
+        expect(stylesheet.headers["content-type"]).to eq("text/css")
+        expect(stylesheet.body).to eq(".lane { color: red }")
+
+        script = client.get("/extension_assets/0/nested/extension.js")
+        expect(script.headers["content-type"]).to eq("application/javascript")
+        expect(script.body).to eq("console.log('hi')")
+
+        expect(client.get("/extension_assets/0/logo.png").status).to eq(200)
+        expect(client.get("/extension_assets/0/missing.css").status).to eq(404)
+        expect(client.get("/extension_assets/0/nested").status).to eq(404)
+      end
+    end
+
+    specify "extension assets are linked on the not found page" do
+      Dir.mktmpdir do |assets_root|
+        File.write(File.join(assets_root, "extension.css"), "")
+        extension =
+          Class.new do
+            attr_reader :assets_root
+
+            def initialize(assets_root)
+              @assets_root = assets_root
+            end
+          end.new(assets_root)
+        app = Browser::App.for(event_store_locator: -> { event_store }, extensions: [extension])
+
+        response = Rack::MockRequest.new(app).get("/events/00000000-0000-0000-0000-000000000000")
+        expect(response).to be_not_found
+        expect(response.body).to include('href="http://example.org/extension_assets/0/extension.css"')
+      end
+    end
+
+    specify "each extension serves assets under its own prefix" do
+      Dir.mktmpdir do |first_root|
+        Dir.mktmpdir do |second_root|
+          File.write(File.join(first_root, "extension.css"), "first")
+          File.write(File.join(second_root, "extension.css"), "second")
+          extension_class =
+            Class.new do
+              attr_reader :assets_root
+
+              def initialize(assets_root)
+                @assets_root = assets_root
+              end
+            end
+          app =
+            Browser::App.for(
+              event_store_locator: -> { event_store },
+              extensions: [extension_class.new(first_root), extension_class.new(second_root)],
+            )
+          client = Rack::MockRequest.new(app)
+
+          expect(client.get("/extension_assets/0/extension.css").body).to eq("first")
+          expect(client.get("/extension_assets/1/extension.css").body).to eq("second")
+        end
+      end
+    end
+
+    specify "extension can render its own views wrapped in the layout" do
+      Dir.mktmpdir do |views_root|
+        Dir.mktmpdir do |assets_root|
+          File.write(File.join(views_root, "hello.html.erb"), "<p>hello <%= h(name) %> from <%= urls.app_url %></p>")
+          File.write(File.join(assets_root, "extension.css"), "")
+          File.write(File.join(assets_root, "extension.js"), "")
+          extension =
+            Class.new do
+              attr_reader :views_root, :assets_root
+
+              def initialize(views_root, assets_root)
+                @views_root = views_root
+                @assets_root = assets_root
+              end
+
+              def register_routes(router, context)
+                router.add_route("GET", "/hello") do |_, urls|
+                  context.render("hello", urls: urls, title: "Hello page", name: "world")
+                end
+                router.add_route("GET", "/hello_untitled") do |_, urls|
+                  context.render("hello", urls: urls, name: "world")
+                end
+              end
+
+              def nav_links(urls)
+                [{ label: "Hello", url: "#{urls.app_url}/hello" }]
+              end
+            end.new(views_root, assets_root)
+          app = Browser::App.for(event_store_locator: -> { event_store }, extensions: [extension])
+
+          response = WebClient.new(app, "example.org").get("/hello")
+          expect(response.status).to eq(200)
+          expect(response.content_type).to eq("text/html;charset=utf-8")
+          expect(response.body).to include("<p>hello world from http://example.org</p>")
+          expect(response.body.scan("<!DOCTYPE").size).to eq(1)
+          expect(response.body).to include('href="http://example.org/extension_assets/0/extension.css"')
+          expect(response.body).to include(
+            '<script type="module" src="http://example.org/extension_assets/0/extension.js"></script>',
+          )
+          expect(response.body).to include(">Hello</a>")
+          expect(response.body).to include("<title>RubyEventStore::Browser - Hello page</title>")
+
+          untitled = WebClient.new(app, "example.org").get("/hello_untitled")
+          expect(untitled.body).to include("<title>RubyEventStore::Browser</title>")
+        end
+      end
+    end
+
+    specify "extension can respond with the styled not found page" do
+      extension =
+        Class.new do
+          def register_routes(router, context)
+            router.add_route("GET", "/inspect/:thing") do |params, urls|
+              next context.not_found(urls) unless params.fetch("thing").eql?("known")
+              [200, { "content-type" => "text/plain" }, ["known"]]
+            end
+          end
+        end.new
+      app = Browser::App.for(event_store_locator: -> { event_store }, extensions: [extension])
+      client = Rack::MockRequest.new(Rack::Lint.new(app))
+
+      response = client.get("/inspect/unknown")
+      expect(response.status).to eq(404)
+      expect(response.headers["content-type"]).to eq("text/html;charset=utf-8")
+      expect(response.body).to include("Page not found")
+      expect(response.body).to include("<title>RubyEventStore::Browser - Not found</title>")
+      expect(response.body.scan("<!DOCTYPE").size).to eq(1)
+      expect(client.get("/inspect/known").status).to eq(200)
+    end
+
+    specify "extension with own not_found template overrides the default one" do
+      Dir.mktmpdir do |views_root|
+        File.write(File.join(views_root, "not_found.html.erb"), "<p>gone: <%= h(message) %></p>")
+        extension =
+          Class.new do
+            attr_reader :views_root
+
+            def initialize(views_root)
+              @views_root = views_root
+            end
+
+            def register_routes(router, context)
+              router.add_route("GET", "/missing") { |_, urls| context.not_found(urls, message: "no such process") }
+            end
+          end.new(views_root)
+        app = Browser::App.for(event_store_locator: -> { event_store }, extensions: [extension])
+        client = Rack::MockRequest.new(app)
+
+        response = client.get("/missing")
+        expect(response.status).to eq(404)
+        expect(response.body).to include("<p>gone: no such process</p>")
+        expect(response.body.scan("<!DOCTYPE").size).to eq(1)
+
+        core_not_found = client.get("/events/00000000-0000-0000-0000-000000000000")
+        expect(core_not_found.body).to include("There&#39;s no event with given ID")
+        expect(core_not_found.body).not_to include("gone:")
+      end
+    end
+
+    specify "extensions without optional hooks leave pages untouched" do
+      bare_extension = Object.new
+      linking_extension =
+        Class.new do
+          def stream_links(stream_name, urls)
+            [{ label: "Inspect stream", url: "#{urls.app_url}/inspect/#{stream_name}" }]
+          end
+        end.new
+      app = Browser::App.for(event_store_locator: -> { event_store }, extensions: [bare_extension, linking_extension])
+      client = Rack::MockRequest.new(app)
+
+      response = client.get("/streams/special")
+      expect(response.status).to eq(200)
+      expect(response.body).to include("Inspect stream")
+      expect(response.body).not_to include('href=""')
+
+      event_store.append(event = DummyEvent.new)
+      expect(client.get("/events/#{event.event_id}").status).to eq(200)
+    end
+
+    specify "uses configured host for generated URLs" do
+      app =
+        Browser::App.new(
+          event_store_locator: -> { event_store },
+          related_streams_query: Browser::DEFAULT_RELATED_STREAMS_QUERY,
+          host: "http://configured.example.com",
+          root_path: nil,
+        )
+      env = Rack::MockRequest.env_for("http://other.example.com/")
+      status, headers, = app.call(env)
+      expect(status).to eq(302)
+      expect(headers["location"]).to include("configured.example.com")
+    end
+  end
+end

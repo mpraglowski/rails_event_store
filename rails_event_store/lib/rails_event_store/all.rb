@@ -1,31 +1,17 @@
 # frozen_string_literal: true
 
-require 'ruby_event_store'
-require 'rails_event_store/async_handler_helpers'
-require 'rails_event_store/link_by_metadata'
-require 'rails_event_store/after_commit_async_dispatcher'
-require 'rails_event_store/active_job_scheduler'
-require 'rails_event_store/client'
-require 'rails_event_store/version'
-require 'rails_event_store/railtie'
-require 'rails_event_store/browser'
-
-module RailsEventStore
-  Event                       = RubyEventStore::Event
-  InMemoryRepository          = RubyEventStore::InMemoryRepository
-  Subscriptions               = RubyEventStore::Subscriptions
-  Projection                  = RubyEventStore::Projection
-  WrongExpectedEventVersion   = RubyEventStore::WrongExpectedEventVersion
-  InvalidExpectedVersion      = RubyEventStore::InvalidExpectedVersion
-  IncorrectStreamData         = RubyEventStore::IncorrectStreamData
-  EventNotFound               = RubyEventStore::EventNotFound
-  SubscriberNotExist          = RubyEventStore::SubscriberNotExist
-  InvalidHandler              = RubyEventStore::InvalidHandler
-  InvalidPageStart            = RubyEventStore::InvalidPageStart
-  InvalidPageStop             = RubyEventStore::InvalidPageStop
-  InvalidPageSize             = RubyEventStore::InvalidPageSize
-  CorrelatedCommands          = RubyEventStore::CorrelatedCommands
-  GLOBAL_STREAM               = RubyEventStore::GLOBAL_STREAM
-  PAGE_SIZE                   = RubyEventStore::PAGE_SIZE
-  ImmediateAsyncDispatcher    = RubyEventStore::ImmediateAsyncDispatcher
-end
+require "ruby_event_store"
+require_relative "async_handler_helpers"
+require_relative "link_by_metadata"
+require_relative "after_commit_dispatcher"
+require_relative "buffering_scheduler"
+require_relative "bulk_enqueue"
+require_relative "active_job_scheduler"
+require_relative "active_job_bulk_scheduler"
+require_relative "active_job_id_only_scheduler"
+require_relative "active_job_id_only_bulk_scheduler"
+require_relative "client"
+require_relative "json_client"
+require_relative "version"
+require_relative "railtie"
+require_relative "browser"

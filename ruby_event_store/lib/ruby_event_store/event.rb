@@ -1,9 +1,8 @@
 # frozen_string_literal: true
 
-require 'securerandom'
+require "securerandom"
 
 module RubyEventStore
-
   # Data structure representing an event
   class Event
     # Instantiates a new event
@@ -15,9 +14,11 @@ module RubyEventStore
     #   causation_id etc.
     # @return [Event]
     def initialize(event_id: SecureRandom.uuid, metadata: nil, data: {})
+      raise ArgumentError, "event_id must not be blank" if event_id.to_s.empty?
+
       @event_id = event_id.to_s
       @metadata = Metadata.new(metadata.to_h)
-      @data     = data
+      @data = data
     end
 
     attr_reader :event_id, :metadata, :data
@@ -31,7 +32,7 @@ module RubyEventStore
     # Type of event. Used when matching with subscribed handlers.
     # @return [String]
     def event_type
-      self.class.name
+      metadata[:event_type] || self.class.name
     end
 
     # Timestamp from metadata
@@ -50,6 +51,7 @@ module RubyEventStore
 
     # Two events are equal if:
     # * they are of the same class
+    # * have identical event type
     # * have identical event id
     # * have identical data (verified with eql? method)
     #
@@ -58,13 +60,9 @@ module RubyEventStore
     # Event equality ignores metadata!
     # @return [TrueClass, FalseClass]
     def ==(other_event)
-      other_event.instance_of?(self.class) &&
-        other_event.event_id.eql?(event_id) &&
-        other_event.data.eql?(data)
+      other_event.instance_of?(self.class) && other_event.event_type.eql?(event_type) &&
+        other_event.event_id.eql?(event_id) && other_event.data.eql?(data)
     end
-
-    # @private
-    BIG_VALUE = 0b111111100100000010010010110011101011000101010101001100100110000
 
     # Generates a Fixnum hash value for this object. This function
     # have the property that a.eql?(b) implies a.hash == b.hash.
@@ -78,15 +76,11 @@ module RubyEventStore
     # * data
     def hash
       # We don't use metadata because == does not use metadata
-      [
-        self.class,
-        event_id,
-        data
-      ].hash ^ BIG_VALUE
+      [event_type, event_id, data].hash ^ self.class.hash
     end
 
     # Reads correlation_id from metadata.
-    # {http://railseventstore.org/docs/correlation_causation/ Find out more}
+    # {https://railseventstore.org/docs/core-concepts/correlation-causation Find out more}
     #
     # @return [String, nil]
     def correlation_id
@@ -94,7 +88,7 @@ module RubyEventStore
     end
 
     # Sets correlation_id in metadata.
-    # {http://railseventstore.org/docs/correlation_causation/ Find out more}
+    # {https://railseventstore.org/docs/core-concepts/correlation-causation Find out more}
     #
     # @param val [String]
     # @return [String]
@@ -103,7 +97,7 @@ module RubyEventStore
     end
 
     # Reads causation_id from metadata.
-    # {http://railseventstore.org/docs/correlation_causation/ Find out more}
+    # {https://railseventstore.org/docs/core-concepts/correlation-causation Find out more}
     #
     # @return [String, nil]
     def causation_id
@@ -111,24 +105,39 @@ module RubyEventStore
     end
 
     # Sets causation_id= in metadata.
-    # {http://railseventstore.org/docs/correlation_causation/ Find out more}
+    # {https://railseventstore.org/docs/core-concepts/correlation-causation Find out more}
     #
     # @param val [String]
     # @return [String]
     def causation_id=(val)
-      metadata[:causation_id]= val
+      metadata[:causation_id] = val
     end
 
     # Sets correlation_id and causation_id in metadata based
     # on correlation_id and message_id of the provided message.
-    # {http://railseventstore.org/docs/correlation_causation/ Find out more}
+    # {https://railseventstore.org/docs/core-concepts/correlation-causation Find out more}
     #
-    # @param other_message [Event, Proto, command] message to correlate with. Most likely an event or a command. Must respond to correlation_id and message_id.
+    # @param other_message [Event, command] message to correlate with. Most likely an event or a command. Must respond to correlation_id and message_id.
     # @return [String] set causation_id
     def correlate_with(other_message)
       self.correlation_id = other_message.correlation_id || other_message.message_id
-      self.causation_id   = other_message.message_id
+      self.causation_id = other_message.message_id
       self
+    end
+
+    # Returns a hash of the name/value pairs for the given event attributes.
+    #
+    # @param attributes [Array] attributes to deconstruct
+    # @return [Hash] deconstructed event
+    def deconstruct_keys(attributes)
+      {
+        causation_id: causation_id,
+        correlation_id: correlation_id,
+        data: data,
+        event_id: event_id,
+        event_type: event_type,
+        metadata: metadata.to_h
+      }.slice(*attributes)
     end
 
     alias_method :eql?, :==

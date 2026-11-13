@@ -1,16 +1,17 @@
 # frozen_string_literal: true
 
-require "ruby_event_store/outbox/sidekiq_producer"
+require_relative "sidekiq_producer"
 
 module RubyEventStore
   module Outbox
     class SidekiqScheduler
-      def initialize
+      def initialize(serializer: Serializers::YAML)
+        @serializer = serializer
         @sidekiq_producer = SidekiqProducer.new
       end
 
-      def call(klass, serialized_record)
-        sidekiq_producer.call(klass, [serialized_record.to_h])
+      def call(klass, record)
+        sidekiq_producer.call(klass, [record.serialize(serializer)])
       end
 
       def verify(subscriber)
@@ -18,7 +19,8 @@ module RubyEventStore
       end
 
       private
-      attr_reader :sidekiq_producer
+
+      attr_reader :serializer, :sidekiq_producer
     end
   end
 end

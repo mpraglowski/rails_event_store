@@ -1,0 +1,121 @@
+# frozen_string_literal: true
+
+require "erb"
+require "json"
+
+module RubyEventStore
+  module Browser
+    class Renderer
+      VIEWS_ROOT = File.expand_path("views", __dir__).freeze
+
+      Html = Class.new(String)
+
+      class Compiler < ERB::Compiler
+        def add_insert_cmd(out, content)
+          out.push("#{@insert_cmd}(h((#{content})))")
+        end
+      end
+
+      class Template < ERB
+        def make_compiler(trim_mode)
+          Compiler.new(trim_mode)
+        end
+      end
+
+      class Context
+        include ERB::Util
+
+        def h(value)
+          value.instance_of?(Html) ? value : Html.new(html_escape(value))
+        end
+
+        def raw(value)
+          Html.new(value)
+        end
+
+        def initialize(renderer, locals)
+          @_renderer = renderer
+          locals.each { |k, v| define_singleton_method(k) { v } }
+        end
+
+        def render(template, **locals)
+          @_renderer.render(template, **locals)
+        end
+
+        def safe_json(value)
+          if value.is_a?(Float) && value.infinite? && value.positive?
+            '"Infinity"'
+          elsif value.is_a?(Float) && value.infinite?
+            '"-Infinity"'
+          elsif value.is_a?(Float) && value.nan?
+            '"NaN"'
+          elsif value.is_a?(Float) && value == value.to_i
+            value.to_i.to_s
+          elsif value.is_a?(Hash)
+            "{#{value.map { |k, v| "#{k.to_json}:#{safe_json(v)}" }.join(",")}}"
+          elsif value.is_a?(Array)
+            "[#{value.map { |v| safe_json(v) }.join(",")}]"
+          else
+            value.to_json
+          end
+        end
+
+        def json_tree(value)
+          Html.new(append_json_value(+"", value))
+        end
+
+        def get_binding
+          binding
+        end
+
+        private
+
+        def append_json_value(html, value)
+          if value.is_a?(Hash) && !value.empty?
+            html << '{<ul class="list-none ml-[26px] pl-0">'
+            value.sort_by { |key, _| key.to_s }.each do |key, child|
+              html << '<li class="relative"><span class="font-bold whitespace-pre">' << h(key) << "</span>: "
+              append_json_value(html, child)
+              html << ",</li>"
+            end
+            html << "</ul>}"
+          elsif value.is_a?(Array) && !value.empty?
+            html << '[<ul class="list-none ml-[26px] pl-0">'
+            value.each do |child|
+              html << '<li class="relative">'
+              append_json_value(html, child)
+              html << ",</li>"
+            end
+            html << "</ul>]"
+          else
+            color =
+              case value
+              when String then "text-[green]"
+              when Numeric then "text-[blue]"
+              when true, false then "text-[firebrick]"
+              when nil then "text-[gray]"
+              else ""
+              end
+            html << '<span class="whitespace-pre ' << color << '">' << h(safe_json(value)) << "</span>"
+          end
+        end
+      end
+
+      def initialize(views_roots = [VIEWS_ROOT])
+        @views_roots = views_roots
+      end
+
+      def render(template, **locals)
+        context = Context.new(self, locals)
+        Html.new(Template.new(File.read(template_path(template)), trim_mode: "-").result(context.get_binding))
+      end
+
+      private
+
+      def template_path(template)
+        @views_roots.map { |root| File.join(root, "#{template}.html.erb") }.find { |path| File.exist?(path) } ||
+          raise(ArgumentError, "Template not found: #{template}")
+      end
+    end
+  end
+end

@@ -1,1 +1,20 @@
-../.mutant.yml
+# https://github.com/mbj/mutant/blob/master/docs/configuration.md
+
+usage: opensource
+requires:
+  - rails_event_store
+includes:
+  - lib
+integration:
+  name: rspec
+mutation:
+  operators: light
+coverage_criteria:
+  process_abort: true
+matcher:
+  subjects:
+    - RailsEventStore*
+  ignore:
+    - RailsEventStore::Client#initialize
+    - RailsEventStore::JSONClient#initialize
+    - RailsEventStore::AsyncHandler.with

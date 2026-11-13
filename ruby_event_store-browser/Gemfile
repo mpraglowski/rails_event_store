@@ -1,14 +1,17 @@
-source 'https://rubygems.org'
-git_source(:github) { |repo| "https://github.com/#{repo}.git" }
+# frozen_string_literal: true
+
+source "https://rubygems.org"
 gemspec
 
-eval_gemfile '../support/bundler/Gemfile.shared'
+eval_gemfile "../support/bundler/Gemfile.shared"
 
-gem 'ruby_event_store', path: '../ruby_event_store'
-gem 'aggregate_root',   path: '../aggregate_root'
-gem 'bounded_context',  path: '../bounded_context'
-gem 'rack-test'
-gem 'capybara', '~> 3.18'
-gem 'selenium-webdriver', '~> 3.141'
-gem 'json-schema'
-gem 'rack'
+gem "ruby_event_store", path: ".."
+
+gem "rack-test"
+gem "capybara", "~> 3.35"
+gem "rack", "~> 3.0", "< 3.1.0"
+gem "ostruct"
+gem "webrick"
+gem "cuprite"
+gem "rackup"
+gem "tailwindcss-ruby", require: false

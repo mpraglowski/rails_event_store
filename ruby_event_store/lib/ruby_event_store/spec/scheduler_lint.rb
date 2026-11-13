@@ -1,4 +1,6 @@
-RSpec.shared_examples :scheduler do |scheduler|
+# frozen_string_literal: true
+
+RSpec.shared_examples "scheduler" do |scheduler|
   specify "#call" do
     expect(scheduler).to respond_to(:call).with(2).arguments
   end

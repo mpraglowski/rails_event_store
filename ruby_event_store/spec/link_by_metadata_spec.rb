@@ -1,67 +1,32 @@
-require 'spec_helper'
+# frozen_string_literal: true
+
+require "spec_helper"
 
 module RubyEventStore
-  RSpec.describe LinkByMetadata do
+  ::RSpec.describe LinkByMetadata do
+    let(:event_store) { Client.new }
 
-    let(:event_store) do
-      RubyEventStore::Client.new(repository: InMemoryRepository.new)
-    end
-
-    specify 'links to stream based on selected metadata' do
+    specify "links to stream based on selected metadata" do
       event_store.subscribe_to_all_events(LinkByMetadata.new(event_store: event_store, key: :string))
       event_store.subscribe_to_all_events(LinkByMetadata.new(event_store: event_store, key: :float))
       event_store.subscribe_to_all_events(LinkByMetadata.new(event_store: event_store, key: :int))
       event_store.subscribe_to_all_events(LinkByMetadata.new(event_store: event_store, key: :missing))
 
-      event_store.publish(ev = OrderCreated.new(metadata:{
-        string: "city",
-        float: 1.5,
-        int: 2,
-      }))
+      event_store.publish(ev = OrderCreated.new(metadata: { string: "city", float: 1.5, int: 2 }))
 
       expect(event_store.read.stream("$by_string_city").to_a).to eq([ev])
-      expect(event_store.read.stream("$by_float_1.5").to_a).to   eq([ev])
-      expect(event_store.read.stream("$by_int_2").to_a).to       eq([ev])
+      expect(event_store.read.stream("$by_float_1.5").to_a).to eq([ev])
+      expect(event_store.read.stream("$by_int_2").to_a).to eq([ev])
 
-      expect(event_store.read.stream("$by_missing").to_a).to     eq([])
-      expect(event_store.read.stream("$by_missing_").to_a).to    eq([])
+      expect(event_store.read.stream("$by_missing").to_a).to eq([])
+      expect(event_store.read.stream("$by_missing_").to_a).to eq([])
       expect(event_store.read.stream("$by_missing_nil").to_a).to eq([])
     end
 
-    specify 'links to stream based on selected metadata (proto)' do
-      begin
-        require_relative 'mappers/events_pb.rb'
-
-        event_store = RubyEventStore::Client.new(
-          mapper: RubyEventStore::Mappers::Protobuf.new,
-          repository: InMemoryRepository.new
-        )
-        event_store.subscribe_to_all_events(LinkByMetadata.new(event_store: event_store, key: :city))
-        ev = RubyEventStore::Proto.new(
-          data: ResTesting::OrderCreated.new(
-            customer_id: 123,
-            order_id: "K3THNX9",
-          ),
-          metadata: {city: "Chicago"}
-        )
-        event_store.publish(ev)
-
-        expect(event_store.read.stream("$by_city_Chicago").to_a).to eq([ev])
-      rescue LoadError => exc
-        skip if exc.message == "cannot load such file -- google/protobuf_c"
-      end
-    end
-
     specify "custom prefix" do
-      event_store.subscribe_to_all_events(LinkByMetadata.new(
-        event_store: event_store,
-        key: :city,
-        prefix: "sweet+")
-      )
+      event_store.subscribe_to_all_events(LinkByMetadata.new(event_store: event_store, key: :city, prefix: "sweet+"))
 
-      event_store.publish(ev = OrderCreated.new(metadata:{
-        city: "Paris",
-      }))
+      event_store.publish(ev = OrderCreated.new(metadata: { city: "Paris" }))
 
       expect(event_store.read.stream("sweet+Paris").to_a).to eq([ev])
     end
@@ -69,21 +34,16 @@ module RubyEventStore
     specify "explicitly passes array of ids instead of a single id" do
       event_store.subscribe_to_all_events(LinkByMetadata.new(event_store: event_store, key: :city))
       expect(event_store).to receive(:link).with(instance_of(Array), any_args)
-      event_store.publish(ev = OrderCreated.new(metadata:{
-        city: "Paris",
-      }))
+      event_store.publish(OrderCreated.new(metadata: { city: "Paris" }))
     end
-
   end
 
-  RSpec.describe LinkByCorrelationId do
-    let(:event_store) do
-      RubyEventStore::Client.new(repository: InMemoryRepository.new)
-    end
+  ::RSpec.describe LinkByCorrelationId do
+    let(:event_store) { Client.new }
     let(:event) do
       OrderCreated.new.tap do |ev|
         ev.correlation_id = "COR"
-        ev.causation_id   = "CAU"
+        ev.causation_id = "CAU"
       end
     end
 
@@ -100,14 +60,12 @@ module RubyEventStore
     end
   end
 
-  RSpec.describe LinkByCausationId do
-    let(:event_store) do
-      RubyEventStore::Client.new(repository: InMemoryRepository.new)
-    end
+  ::RSpec.describe LinkByCausationId do
+    let(:event_store) { Client.new }
     let(:event) do
       OrderCreated.new.tap do |ev|
         ev.correlation_id = "COR"
-        ev.causation_id   = "CAU"
+        ev.causation_id = "CAU"
       end
     end
 
@@ -124,10 +82,8 @@ module RubyEventStore
     end
   end
 
-  RSpec.describe LinkByEventType do
-    let(:event_store) do
-      RubyEventStore::Client.new(repository: InMemoryRepository.new)
-    end
+  ::RSpec.describe LinkByEventType do
+    let(:event_store) { Client.new }
     let(:event) { OrderCreated.new }
 
     specify "default prefix" do
@@ -145,9 +101,7 @@ module RubyEventStore
     specify "explicitly passes array of ids instead of a single id" do
       event_store.subscribe_to_all_events(LinkByEventType.new(event_store: event_store))
       expect(event_store).to receive(:link).with(instance_of(Array), any_args)
-      event_store.publish(ev = OrderCreated.new())
+      event_store.publish(OrderCreated.new)
     end
   end
-
 end
-

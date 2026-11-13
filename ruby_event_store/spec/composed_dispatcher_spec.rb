@@ -1,33 +1,37 @@
+# frozen_string_literal: true
+
 require "spec_helper"
-require 'ruby_event_store/spec/dispatcher_lint'
+require "ruby_event_store/spec/dispatcher_lint"
 
 module RubyEventStore
-  RSpec.describe ComposedDispatcher do
-    skippy_dispatcher = Class.new do
-      def call(_subscriber, _event, _record)
-        @called = true
-      end
+  ::RSpec.describe ComposedDispatcher do
+    skippy_dispatcher =
+      Class.new do
+        def call(_subscriber, _event, _record)
+          @called = true
+        end
 
-      def verify(_subscriber)
-        false
+        def verify(_subscriber)
+          false
+        end
+        attr_reader :called
       end
-      attr_reader :called
-    end
-    it_behaves_like :dispatcher, skippy_dispatcher.new
+    it_behaves_like "dispatcher", skippy_dispatcher.new
 
-    real_dispatcher = Class.new do
-      def call(_subscriber, _event, _record)
-        @called = true
+    real_dispatcher =
+      Class.new do
+        def call(_subscriber, _event, _record)
+          @called = true
+        end
+
+        def verify(_subscriber)
+          true
+        end
+        attr_reader :called
       end
+    it_behaves_like "dispatcher", real_dispatcher.new
 
-      def verify(_subscriber)
-        true
-      end
-      attr_reader :called
-    end
-    it_behaves_like :dispatcher, real_dispatcher.new
-
-    it_behaves_like :dispatcher, ComposedDispatcher.new
+    it_behaves_like "dispatcher", ComposedDispatcher.new
 
     describe "#verify" do
       specify "pass subscriber to dispatcher" do
@@ -44,14 +48,14 @@ module RubyEventStore
         composed_dispatcher = ComposedDispatcher.new(skippy_dispatcher.new, real_dispatcher.new)
 
         subscriber = double
-        expect(composed_dispatcher.verify(subscriber)).to eq(true)
+        expect(composed_dispatcher.verify(subscriber)).to be(true)
       end
 
       specify "raise error if all dispatchers falsey" do
         composed_dispatcher = ComposedDispatcher.new(skippy_dispatcher.new)
 
         subscriber = double
-        expect(composed_dispatcher.verify(subscriber)).to eq(false)
+        expect(composed_dispatcher.verify(subscriber)).to be(false)
       end
     end
 
@@ -59,8 +63,8 @@ module RubyEventStore
       specify "pass arguments to dispatcher" do
         dispatcher = spy
         composed_dispatcher = ComposedDispatcher.new(dispatcher)
-        event = instance_double(::RubyEventStore::Event)
-        record = instance_double(::RubyEventStore::Record)
+        event = instance_double(Event)
+        record = instance_double(Record)
         subscriber = double
 
         composed_dispatcher.call(subscriber, event, record)
@@ -73,8 +77,8 @@ module RubyEventStore
         skippy = skippy_dispatcher.new
         real = real_dispatcher.new
         composed_dispatcher = ComposedDispatcher.new(skippy, real)
-        event = instance_double(::RubyEventStore::Event)
-        record = instance_double(::RubyEventStore::Record)
+        event = instance_double(Event)
+        record = instance_double(Record)
         subscriber = double
 
         composed_dispatcher.call(subscriber, event, record)
@@ -87,8 +91,8 @@ module RubyEventStore
         real1 = real_dispatcher.new
         real2 = real_dispatcher.new
         composed_dispatcher = ComposedDispatcher.new(real1, real2)
-        event = instance_double(::RubyEventStore::Event)
-        record = instance_double(::RubyEventStore::Record)
+        event = instance_double(Event)
+        record = instance_double(Record)
         subscriber = double
 
         composed_dispatcher.call(subscriber, event, record)

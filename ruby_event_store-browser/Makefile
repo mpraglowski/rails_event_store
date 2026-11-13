@@ -1,10 +1,8 @@
-GEM_VERSION  = $(shell cat ../RES_VERSION)
-GEM_NAME     = ruby_event_store-browser
-REQUIRE      = ruby_event_store/browser
-IGNORE       =
-SUBJECT      ?= RubyEventStore::Browser*
-DATABASE_URL ?= sqlite3::memory:
-BUNDLE       = public/ruby_event_store_browser.js public/ruby_event_store_browser.css public/ruby_event_store_browser.js.map public/ruby_event_store_browser.css.map
+GEM_VERSION      = $(shell cat ../RES_VERSION)
+GEM_NAME         = ruby_event_store-browser
+STIMULUS_VERSION = 3.2.2
+CSS_OUTFILE      = public/ruby_event_store_browser.css
+STIMULUS_JS      = public/stimulus-$(STIMULUS_VERSION).js
 
 include ../support/make/install.mk
 include ../support/make/test.mk
@@ -12,33 +10,25 @@ include ../support/make/mutant.mk
 include ../support/make/gem.mk
 include ../support/make/help.mk
 
-install: install-yarn
+build: css $(STIMULUS_JS)
 
-test: $(BUNDLE) test-yarn
+test mutate mutate-changes: css $(STIMULUS_JS)
 
-build: $(BUNDLE)
+css: ## Build the stylesheet from the templates with Tailwind
+	@bundle exec tailwindcss --minify --input tailwind.css --output $(CSS_OUTFILE)
 
-push: $(BUNDLE)
+css-watch: ## Watch the stylesheet for changes and rebuild
+	@bundle exec tailwindcss --watch --input tailwind.css --output $(CSS_OUTFILE)
 
-clean: clean-yarn
+verify-assets: css $(STIMULUS_JS) ## Verify committed public/ assets match a fresh build
+	@git diff --exit-code -- public/ \
+		|| (echo "public/ assets drifted from a fresh build — run 'make build' and commit"; exit 1)
 
-watch-elm: clean-yarn ## Start dev frontend
-	@cd elm; yarn watch
+$(STIMULUS_JS): ## Vendor the pinned Stimulus runtime from the CDN
+	@echo "Downloading @hotwired/stimulus $(STIMULUS_VERSION)"
+	@curl -sL "https://cdn.jsdelivr.net/npm/@hotwired/stimulus@$(STIMULUS_VERSION)/+esm" | sed '/^\/\/#[[:space:]]*sourceMappingURL=/d' > $(STIMULUS_JS)
 
-dev-server: ## Start dev backend prepopulated with events
+
+dev: ## Start standalone browser seeded with some events
 	@bundle exec rackup --port 9393 devserver/config.ru
 
-install-yarn:
-	@echo "Installing yarn dependencies"
-	@cd elm; yarn install
-
-test-yarn:
-	@cd elm; yarn test
-
-clean-yarn:
-	-rm $(BUNDLE)
-
-$(BUNDLE):
-	@echo "Building browser frontend"
-	@-$(if $(CI), ls -alR ~/.elm elm/elm-stuff,)
-	@cd elm; yarn build

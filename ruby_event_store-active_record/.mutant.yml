@@ -1,0 +1,45 @@
+# https://github.com/mbj/mutant/blob/master/docs/configuration.md
+
+usage: opensource
+requires:
+  - ruby_event_store/active_record
+includes:
+  - lib
+integration:
+  name: rspec
+mutation:
+  operators: light
+  timeout: 10.0
+coverage_criteria:
+  timeout: true
+  process_abort: true
+matcher:
+  subjects:
+    - RubyEventStore::ActiveRecord*
+  ignore:
+    - RubyEventStore::ActiveRecord::IndexViolationDetector#initialize
+    - RubyEventStore::ActiveRecord::IndexViolationDetector#detect
+    - RubyEventStore::ActiveRecord::IndexViolationDetector#detect_mysql
+    - RubyEventStore::ActiveRecord::IndexViolationDetector#detect_postgres
+    - RubyEventStore::ActiveRecord::PgLinearizedEventRepository*
+    - RubyEventStore::ActiveRecord::EventRepository#update_messages
+    - RubyEventStore::ActiveRecord::EventRepository#upsert_hash
+    - RubyEventStore::ActiveRecord::EventRepository#add_to_stream
+    - RubyEventStore::ActiveRecord::EventRepository#link_to_stream
+    - RubyEventStore::ActiveRecord::EventRepository#append_to_stream
+    - RubyEventStore::ActiveRecord::WithAbstractBaseClass#build_event_klass
+    - RubyEventStore::ActiveRecord::WithAbstractBaseClass#build_stream_klass
+    - RubyEventStore::ActiveRecord::Event.hook_attribute_type
+    - RubyEventStore::ActiveRecord::DoubleSerializationDetector
+    - RubyEventStore::ActiveRecord::EventRepositoryReader#initialize
+    - RubyEventStore::ActiveRecord::EventRepositoryReader#count
+    - RubyEventStore::ActiveRecord::EventRepository#model_klasses
+    - RubyEventStore::ActiveRecord::EventRepository#json_data_type?
+    - RubyEventStore::ActiveRecord::EventRepository#rescue_from_double_json_serialization!
+    - RubyEventStore::ActiveRecord::SkipJsonSerialization
+    - RubyEventStore::ActiveRecord::RailsMigrationGenerator#initialize
+    - RubyEventStore::ActiveRecord::RailsForeignKeyOnEventIdMigrationGenerator#initialize
+    - RubyEventStore::ActiveRecord::RailsForeignKeyOnEventIdMigrationGenerator#create_migration
+    - RubyEventStore::ActiveRecord::RailsValidAtIndexMigrationGenerator#initialize
+    - RubyEventStore::ActiveRecord::RailsValidAtIndexMigrationGenerator#create_migration
+    - RubyEventStore::ActiveRecord::RailsStreamIdIndexMigrationGenerator#initialize

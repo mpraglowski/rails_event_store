@@ -1,12 +1,14 @@
-require 'spec_helper'
-require 'ruby_event_store/batch_enumerator'
+# frozen_string_literal: true
+
+require "spec_helper"
+require "ruby_event_store/batch_enumerator"
 
 module RubyEventStore
-  RSpec.describe BatchEnumerator, timeout: 1 do
-    let(:collection) { (1..10000).to_a }
-    let(:reader) { ->(offset,limit) { collection.drop(offset).take(limit) } }
+  ::RSpec.describe BatchEnumerator, timeout: 1 do
+    let(:collection) { (1..10_000).to_a }
+    let(:reader) { ->(offset, limit) { collection.drop(offset).take(limit) } }
 
-    specify { expect(BatchEnumerator.new(100, 900, reader).each).to be_kind_of(Enumerator) }
+    specify { expect(BatchEnumerator.new(100, 900, reader).each).to be_a(Enumerator) }
     specify { expect(BatchEnumerator.new(100, 900, reader).to_a.size).to eq(9) }
     specify { expect(BatchEnumerator.new(100, 901, reader).to_a.size).to eq(10) }
     specify { expect(BatchEnumerator.new(100, 1000, reader).to_a.size).to eq(10) }
@@ -27,6 +29,7 @@ module RubyEventStore
     specify { expect(BatchEnumerator.new(100, 199, reader).first).to eq(collection[0..99]) }
     specify { expect(BatchEnumerator.new(100, 199, reader).to_a[1].size).to eq(99) }
     specify { expect(BatchEnumerator.new(100, 199, reader).to_a[1]).to eq(collection[100..198]) }
+
     specify do
       expect { |b| BatchEnumerator.new(1000, Float::INFINITY, reader).each(&b) }.to yield_successive_args(
         collection[0...1000],
@@ -38,7 +41,7 @@ module RubyEventStore
         collection[6000...7000],
         collection[7000...8000],
         collection[8000...9000],
-        collection[9000...10000]
+        collection[9000...10_000],
       )
     end
 
@@ -48,8 +51,13 @@ module RubyEventStore
     end
 
     specify do
-      expect(reader = double(:reader)).to receive(:call).with(kind_of(Integer), kind_of(Integer)).and_return([])
+      expect(reader = double(:reader)).to receive(:call).with(kind_of(Numeric), kind_of(Numeric)).and_return([])
       BatchEnumerator.new(100, Float::INFINITY, reader).to_a
+    end
+
+    specify "ensure not fetching next batch if the previous one was smaller than specified batch size" do
+      expect(reader).to receive(:call).exactly(4).times.and_call_original
+      expect(BatchEnumerator.new(3000, Float::INFINITY, reader).to_a)
     end
   end
 end

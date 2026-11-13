@@ -1,9 +1,12 @@
 # frozen_string_literal: true
 
-require "ruby_event_store/outbox/sidekiq5_format"
+require_relative "sidekiq5_format"
 
 module RubyEventStore
   module Outbox
+    Error = Class.new(StandardError)
+    RetriableRedisError = Class.new(Error)
+
     class SidekiqProcessor
       InvalidPayload = Class.new(StandardError)
 
@@ -17,20 +20,17 @@ module RubyEventStore
 
         queue = parsed_record["queue"]
         raise InvalidPayload.new("Missing queue") if queue.nil? || queue.empty?
-        payload = JSON.generate(parsed_record.merge({
-          "enqueued_at" => now.to_f,
-        }))
+        payload = JSON.generate(parsed_record.merge({ "enqueued_at" => record.created_at.to_f }))
 
-        redis.lpush("queue:#{queue}", payload)
+        redis.call("LPUSH", "queue:#{queue}", payload)
 
         @recently_used_queues << queue
+      rescue RedisClient::TimeoutError, RedisClient::ConnectionError
+        raise RetriableRedisError
       end
 
       def after_batch
-        if !@recently_used_queues.empty?
-          redis.sadd("queues", @recently_used_queues.to_a)
-          @recently_used_queues.clear
-        end
+        ensure_that_sidekiq_knows_about_all_queues
       end
 
       def message_format
@@ -38,6 +38,14 @@ module RubyEventStore
       end
 
       private
+
+      def ensure_that_sidekiq_knows_about_all_queues
+        if !@recently_used_queues.empty?
+          redis.call("SADD", "queues", @recently_used_queues.to_a)
+          @recently_used_queues.clear
+        end
+      end
+
       attr_reader :redis
     end
   end

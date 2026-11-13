@@ -2,56 +2,59 @@
 
 module RubyEventStore
   class SpecificationResult
-    def initialize(direction: :forward,
-                   start: nil,
-                   stop: nil,
-                   older_than: nil,
-                   older_than_or_equal: nil,
-                   newer_than: nil,
-                   newer_than_or_equal: nil,
-                   time_sort_by: nil,
-                   count: nil,
-                   stream: Stream.new(GLOBAL_STREAM),
-                   read_as: :all,
-                   batch_size: Specification::DEFAULT_BATCH_SIZE,
-                   with_ids: nil,
-                   with_types: nil)
-      @attributes = Struct.new(
-        :direction,
-        :start,
-        :stop,
-        :older_than,
-        :older_than_or_equal,
-        :newer_than,
-        :newer_than_or_equal,
-        :time_sort_by,
-        :count,
-        :stream,
-        :read_as,
-        :batch_size,
-        :with_ids,
-        :with_types
-      ).new(
-        direction,
-        start,
-        stop,
-        older_than,
-        older_than_or_equal,
-        newer_than,
-        newer_than_or_equal,
-        time_sort_by,
-        count,
-        stream,
-        read_as,
-        batch_size,
-        with_ids,
-        with_types
-      )
+    def initialize(
+      direction: :forward,
+      start: nil,
+      stop: nil,
+      older_than: nil,
+      older_than_or_equal: nil,
+      newer_than: nil,
+      newer_than_or_equal: nil,
+      time_sort_by: nil,
+      count: nil,
+      stream: Stream.new(GLOBAL_STREAM),
+      read_as: :all,
+      batch_size: Specification::DEFAULT_BATCH_SIZE,
+      with_ids: nil,
+      with_types: nil
+    )
+      @attributes =
+        Struct.new(
+          :direction,
+          :start,
+          :stop,
+          :older_than,
+          :older_than_or_equal,
+          :newer_than,
+          :newer_than_or_equal,
+          :time_sort_by,
+          :count,
+          :stream,
+          :read_as,
+          :batch_size,
+          :with_ids,
+          :with_types,
+        ).new(
+          direction,
+          start,
+          stop,
+          older_than,
+          older_than_or_equal,
+          newer_than,
+          newer_than_or_equal,
+          time_sort_by,
+          count,
+          stream,
+          read_as,
+          batch_size,
+          with_ids,
+          with_types,
+        )
       freeze
     end
 
     # Limited results. True if number of read elements are limited
-    # {http://railseventstore.org/docs/read/ Find out more}.
+    # {https://railseventstore.org/docs/core-concepts/read Find out more}.
     #
     # @return [Boolean]
     def limit?
@@ -59,7 +62,7 @@ module RubyEventStore
     end
 
     # Results limit or infinity if limit not defined
-    # {http://railseventstore.org/docs/read/ Find out more}.
+    # {https://railseventstore.org/docs/core-concepts/read Find out more}.
     #
     # @return [Integer|Infinity]
     def limit
@@ -67,7 +70,7 @@ module RubyEventStore
     end
 
     # Stream definition. Stream to be read or nil
-    # {http://railseventstore.org/docs/read/ Find out more}.
+    # {https://railseventstore.org/docs/core-concepts/read Find out more}.
     #
     # @return [Stream|nil]
     def stream
@@ -75,7 +78,7 @@ module RubyEventStore
     end
 
     # Starting position. Event id of starting event
-    # {http://railseventstore.org/docs/read/ Find out more}.
+    # {https://railseventstore.org/docs/core-concepts/read Find out more}.
     #
     # @return [String]
     def start
@@ -83,7 +86,7 @@ module RubyEventStore
     end
 
     # Stop position. Event id of stopping event
-    # {http://railseventstore.org/docs/read/ Find out more}.
+    # {https://railseventstore.org/docs/core-concepts/read Find out more}.
     #
     # @return [String|Symbol]
     def stop
@@ -91,7 +94,7 @@ module RubyEventStore
     end
 
     # Ending time.
-    # {http://railseventstore.org/docs/read/ Find out more}.
+    # {https://railseventstore.org/docs/core-concepts/read Find out more}.
     #
     # @return [Time]
     def older_than
@@ -99,7 +102,7 @@ module RubyEventStore
     end
 
     # Ending time.
-    # {http://railseventstore.org/docs/read/ Find out more}.
+    # {https://railseventstore.org/docs/core-concepts/read Find out more}.
     #
     # @return [Time]
     def older_than_or_equal
@@ -107,7 +110,7 @@ module RubyEventStore
     end
 
     # Starting time.
-    # {http://railseventstore.org/docs/read/ Find out more}.
+    # {https://railseventstore.org/docs/core-concepts/read Find out more}.
     #
     # @return [Time]
     def newer_than
@@ -115,7 +118,7 @@ module RubyEventStore
     end
 
     # Starting time.
-    # {http://railseventstore.org/docs/read/ Find out more}.
+    # {https://railseventstore.org/docs/core-concepts/read Find out more}.
     #
     # @return [Time]
     def newer_than_or_equal
@@ -123,7 +126,7 @@ module RubyEventStore
     end
 
     # Time sorting strategy. Nil when not specified.
-    # {http://railseventstore.org/docs/read/ Find out more}.
+    # {https://railseventstore.org/docs/core-concepts/read Find out more}.
     #
     # @return [Symbol]
     def time_sort_by
@@ -131,7 +134,7 @@ module RubyEventStore
     end
 
     # Read direction. True is reading forward
-    # {http://railseventstore.org/docs/read/ Find out more}.
+    # {https://railseventstore.org/docs/core-concepts/read Find out more}.
     #
     # @return [Boolean]
     def forward?
@@ -139,7 +142,7 @@ module RubyEventStore
     end
 
     # Read direction. True is reading backward
-    # {http://railseventstore.org/docs/read/ Find out more}.
+    # {https://railseventstore.org/docs/core-concepts/read Find out more}.
     #
     # @return [Boolean]
     def backward?
@@ -147,7 +150,7 @@ module RubyEventStore
     end
 
     # Size of batch to read (only for :batch read strategy)
-    # {http://railseventstore.org/docs/read/ Find out more}.
+    # {https://railseventstore.org/docs/core-concepts/read Find out more}.
     #
     # @return [Integer]
     def batch_size
@@ -155,7 +158,7 @@ module RubyEventStore
     end
 
     # Ids of specified event to be read (if any given)
-    # {http://railseventstore.org/docs/read/ Find out more}.
+    # {https://railseventstore.org/docs/core-concepts/read Find out more}.
     #
     # @return [Array|nil]
     def with_ids
@@ -163,7 +166,7 @@ module RubyEventStore
     end
 
     # Read by specified ids. True if event ids have been specified.
-    # {http://railseventstore.org/docs/read/ Find out more}.
+    # {https://railseventstore.org/docs/core-concepts/read Find out more}.
     #
     # @return [Boolean]
     def with_ids?
@@ -171,7 +174,7 @@ module RubyEventStore
     end
 
     # Event types to be read (if any given)
-    # {http://railseventstore.org/docs/read/ Find out more}.
+    # {https://railseventstore.org/docs/core-concepts/read Find out more}.
     #
     # @return [Array|nil]
     def with_types
@@ -179,7 +182,7 @@ module RubyEventStore
     end
 
     # Read by specified event types. True if event types have been specified.
-    # {http://railseventstore.org/docs/read/ Find out more}.
+    # {https://railseventstore.org/docs/core-concepts/read Find out more}.
     #
     # @return [Boolean]
     def with_types?
@@ -187,7 +190,7 @@ module RubyEventStore
     end
 
     # Read strategy. True if items will be read in batches
-    # {http://railseventstore.org/docs/read/ Find out more}.
+    # {https://railseventstore.org/docs/core-concepts/read Find out more}.
     #
     # @return [Boolean]
     def batched?
@@ -195,7 +198,7 @@ module RubyEventStore
     end
 
     # Read strategy. True if first item will be read
-    # {http://railseventstore.org/docs/read/ Find out more}.
+    # {https://railseventstore.org/docs/core-concepts/read Find out more}.
     #
     # @return [Boolean]
     def first?
@@ -203,7 +206,7 @@ module RubyEventStore
     end
 
     # Read strategy. True if last item will be read
-    # {http://railseventstore.org/docs/read/ Find out more}.
+    # {https://railseventstore.org/docs/core-concepts/read Find out more}.
     #
     # @return [Boolean]
     def last?
@@ -211,11 +214,27 @@ module RubyEventStore
     end
 
     # Read strategy. True if all items will be read
-    # {http://railseventstore.org/docs/read/ Find out more}.
+    # {https://railseventstore.org/docs/core-concepts/read Find out more}.
     #
     # @return [Boolean]
     def all?
       attributes.read_as.equal?(:all)
+    end
+
+    # Read strategy. True if results will be sorted by timestamp
+    # {https://railseventstore.org/docs/core-concepts/read Find out more}.
+    #
+    # @return [Boolean]
+    def time_sort_by_as_at?
+      time_sort_by.equal?(:as_at)
+    end
+
+    # Read strategy. True if results will be sorted by valid_at
+    # {https://railseventstore.org/docs/core-concepts/read Find out more}.
+    #
+    # @return [Boolean]
+    def time_sort_by_as_of?
+      time_sort_by.equal?(:as_of)
     end
 
     # Clone [SpecificationResult]
@@ -238,9 +257,6 @@ module RubyEventStore
     def ==(other_spec)
       other_spec.hash.eql?(hash)
     end
-
-    # @private
-    BIG_VALUE = 0b100010010100011110111101100001011111100101001010111110101000000
 
     # Generates a Fixnum hash value for this object. This function
     # have the property that a.eql?(b) implies a.hash == b.hash.
@@ -268,7 +284,6 @@ module RubyEventStore
     # @return [Integer]
     def hash
       [
-        self.class,
         get_direction,
         start,
         stop,
@@ -283,10 +298,11 @@ module RubyEventStore
         batch_size,
         with_ids,
         with_types,
-      ].hash ^ BIG_VALUE
+      ].hash ^ self.class.hash
     end
 
     private
+
     attr_reader :attributes
 
     def get_direction

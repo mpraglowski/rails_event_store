@@ -1,1 +1,19 @@
-../.mutant.yml
+# https://github.com/mbj/mutant/blob/master/docs/configuration.md
+
+usage: opensource
+requires:
+  - aggregate_root
+includes:
+  - lib
+integration:
+  name: rspec
+mutation:
+  operators: light
+coverage_criteria:
+  process_abort: true
+matcher:
+  subjects:
+    - AggregateRoot*
+  ignore:
+    - AggregateRoot::DefaultApplyStrategy#event_type
+    - AggregateRoot::DefaultApplyStrategy#uses_on_dsl?

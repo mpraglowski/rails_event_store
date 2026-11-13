@@ -1,9 +1,43 @@
-install: ## Install all dependencies
-	@bundle install
-	@yarn install
+NIX_TYPE := $(shell uname -s)
 
-serve: ## Serve documentation files locally at http://localhost:4567
-	@echo "You can check the docs locally at http://localhost:4567"
-	@bundle exec middleman server
+ifeq ($(NIX_TYPE),Linux)
+  SED_OPTS = -i
+endif
+
+ifeq ($(NIX_TYPE),Darwin)
+  SED_OPTS = -i ''
+endif
+
+install: ## Install dependencies
+	@npm install --no-fund --no-audit
+.PHONY: install
+
+build: ## Output static files (production)
+	@npm run build
+.PHONY: build
+
+serve:
+	@npm run serve
+.PHONY: serve
+
+watch:
+	@npx chokidar-cli "docs/**/*.md*" \
+		"src/**/*.js" \
+		-c "make build" \
+		--initial
+.PHONY: watch
+
+dev: ## Run server (development)
+	@$(MAKE) -j2 watch serve
+.PHONY: dev
+
+release: ## Release new docs version (VERSION=x.y.z)
+	@cp -r docs versioned_docs/version-$(VERSION)
+	@cp sidebars.json versioned_sidebars/version-$(VERSION)-sidebars.json
+	@ruby bin/add_version.rb $(VERSION)
+	@sed $(SED_OPTS) "s|releases/tag/v[0-9][0-9.]*|releases/tag/v$(VERSION)|g" docusaurus.config.js
+.PHONY: release
 
 include ../support/make/help.mk
+
+

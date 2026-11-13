@@ -1,8 +1,10 @@
+# frozen_string_literal: true
+
 module ProtobufHelper
   def require_protobuf_dependencies
     begin
-      require_relative '../../ruby_event_store/spec/mappers/events_pb'
-      require 'protobuf_nested_struct'
+      require_relative "../../ruby_event_store/spec/mappers/events_pb"
+      require "protobuf_nested_struct"
       yield if block_given?
     rescue LoadError
       skip if unsupported_ruby_version
@@ -10,7 +12,7 @@ module ProtobufHelper
   end
 
   def unsupported_ruby_version
-    truffleruby || jruby || ruby_2_7_0
+    truffleruby || jruby
   end
 
   def truffleruby
@@ -19,9 +21,5 @@ module ProtobufHelper
 
   def jruby
     RUBY_PLATFORM == "java"
-  end
-
-  def ruby_2_7_0
-    RUBY_VERSION == "2.7.0"
   end
 end

@@ -4,17 +4,17 @@ Source files for the documentation and website of [Rails Event Store](https://ra
 
 ## Serving the docs locally
 
-Provided you have Ruby installed, you can serve the docs locally at `http://localhost:4567`
-
 ```
-bundle install
-yarn install
-bundle exec middleman server
+make install serve
 ```
 
 ## Publishing the docs
 
-Documentation and website are deployed continuously and automatically from the `master` branch by Travis-CI.
+Documentation and website are deployed continuously and automatically from the `master` branch.
+
+## Docs navigation update 
+
+The navigation is now generated from the `sidebars.json` file. You need to restart the development server after updating the file.
 
 ## About
 

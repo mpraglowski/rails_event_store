@@ -1,60 +1,299 @@
-require 'spec_helper'
+# frozen_string_literal: true
+
+require "spec_helper"
 
 FooBarEvent = Class.new(::RubyEventStore::Event)
 
 module RubyEventStore
-  RSpec.describe Browser, type: :feature, js: true do
-    before do
-      Capybara.app = app_builder(event_store)
-    end
-
+  ::RSpec.describe Browser, :js, type: :feature do
     specify "main view", mutant: false do
+      session = Capybara::Session.new(:cuprite, app_builder(event_store))
+
       foo_bar_event = FooBarEvent.new(data: { foo: :bar })
-      event_store.publish(foo_bar_event, stream_name: 'dummy')
+      event_store.publish(foo_bar_event, stream_name: "dummy")
 
-      visit('/')
+      session.visit("/")
 
-      expect(page).to have_content("Events in all")
+      expect(session).to have_content("Events in all")
 
-      within('.browser__results') do
-        click_on 'FooBarEvent'
-      end
+      session.click_link "FooBarEvent"
 
-      within('.event__body') do
-        expect(page).to have_content(foo_bar_event.event_id)
-        expect(page).to have_content(%Q[timestamp: "#{foo_bar_event.metadata[:timestamp].iso8601(TIMESTAMP_PRECISION)}"])
-        expect(page).to have_content(%Q[valid_at: "#{foo_bar_event.metadata[:valid_at].iso8601(TIMESTAMP_PRECISION)}"])
-        expect(page).to have_content(%Q[foo: "bar"])
-      end
+      expect(session).to have_content(foo_bar_event.event_id)
+      expect(session).to have_content(
+        "timestamp: \"#{foo_bar_event.metadata[:timestamp].iso8601(TIMESTAMP_PRECISION)}\"",
+      )
+      expect(session).to have_content("valid_at: \"#{foo_bar_event.metadata[:valid_at].iso8601(TIMESTAMP_PRECISION)}\"")
+      expect(session).to have_content("foo: \"bar\"")
+    rescue Ferrum::BinaryNotFoundError => exc
+      skip exc.message
     end
 
     specify "stream view", mutant: false do
+      session = Capybara::Session.new(:cuprite, app_builder(event_store))
+
       foo_bar_event = FooBarEvent.new(data: { foo: :bar })
-      event_store.publish(foo_bar_event, stream_name: 'foo/bar.xml')
+      event_store.publish(foo_bar_event, stream_name: "foo/bar.xml")
 
-      visit('/streams/foo%2Fbar.xml')
+      session.visit("/streams/foo%2Fbar.xml")
 
-      expect(page).to have_content("Events in foo/bar.xml")
+      expect(session).to have_content("Events in foo/bar.xml")
 
-      within('.browser__results') do
-        click_on 'FooBarEvent'
-      end
+      session.click_link "FooBarEvent"
 
-      within('.event__body') do
-        expect(page).to have_content(foo_bar_event.event_id)
-        expect(page).to have_content(%Q[timestamp: "#{foo_bar_event.metadata[:timestamp].iso8601(TIMESTAMP_PRECISION)}"])
-        expect(page).to have_content(%Q[valid_at: "#{foo_bar_event.metadata[:valid_at].iso8601(TIMESTAMP_PRECISION)}"])
-        expect(page).to have_content(%Q[foo: "bar"])
-      end
+      expect(session).to have_content(foo_bar_event.event_id)
+      expect(session).to have_content(
+        "timestamp: \"#{foo_bar_event.metadata[:timestamp].iso8601(TIMESTAMP_PRECISION)}\"",
+      )
+      expect(session).to have_content("valid_at: \"#{foo_bar_event.metadata[:valid_at].iso8601(TIMESTAMP_PRECISION)}\"")
+      expect(session).to have_content("foo: \"bar\"")
+    rescue Ferrum::BinaryNotFoundError => exc
+      skip exc.message
     end
 
-    let(:event_store) { RubyEventStore::Client.new(repository: RubyEventStore::InMemoryRepository.new) }
+    specify "Content-Security-Policy", mutant: false do
+      session =
+        Capybara::Session.new(
+          :cuprite,
+          CspApp.new(
+            app_builder(event_store),
+            [
+              "default-src 'self'",
+              "connect-src 'self'",
+              "ws://localhost:41221 http://127.0.0.1",
+              "script-src 'self'",
+            ].join(";"),
+          ),
+        )
+
+      foo_bar_event = FooBarEvent.new(data: { foo: :bar })
+      event_store.publish(foo_bar_event, stream_name: "dummy")
+
+      session.visit("/")
+
+      expect(session).to have_content("Events in all")
+    rescue Ferrum::BinaryNotFoundError => exc
+      skip exc.message
+    end
+
+    specify "expect no severe browser warnings", mutant: false do
+      logger = mk_logger
+
+      Capybara.register_driver(:cuprite_with_logger) do |app|
+        Capybara::Cuprite::Driver.new(
+          app,
+          logger: logger,
+          process_timeout: 30,
+          browser_options: {
+            "no-sandbox" => nil,
+          },
+        )
+      end
+
+      session =
+        Capybara::Session.new(
+          :cuprite_with_logger,
+          CspApp.new(app_builder(event_store), "style-src 'self'; script-src 'self'"),
+        )
+
+      session.visit("/")
+
+      expect(logger.messages.select { |m| m["params"]["entry"]["level"] == "error" }).to be_empty
+    rescue Ferrum::BinaryNotFoundError => exc
+      skip exc.message
+    end
+
+    specify "add a stream to the swimlane and open the comparison", mutant: false do
+      session = Capybara::Session.new(:cuprite, app_builder(event_store))
+      event_store.publish(FooBarEvent.new(data: { foo: :bar }), stream_name: "foo")
+
+      session.visit("/streams/foo")
+      session.click_button("Add to swimlane")
+
+      expect(session).to have_link("foo")
+
+      session.click_button("Go to swimlane view")
+
+      expect(session).to have_content("Comparing foo")
+    rescue Ferrum::BinaryNotFoundError => exc
+      skip exc.message
+    end
+
+    specify "compare streams added from different pages", mutant: false do
+      session = Capybara::Session.new(:cuprite, app_builder(event_store))
+      event_store.publish(FooBarEvent.new(data: { foo: :bar }), stream_name: "foo")
+      event_store.publish(FooBarEvent.new(data: { foo: :baz }), stream_name: "bar")
+
+      session.visit("/streams/foo")
+      session.click_button("Add to swimlane")
+
+      session.visit("/streams/bar")
+      session.click_button("Toggle swimlane drawer")
+      expect(session).to have_link("foo")
+
+      session.click_button("Add to swimlane")
+      session.click_button("Go to swimlane view")
+
+      expect(session).to have_content("Comparing foo, bar")
+    rescue Ferrum::BinaryNotFoundError => exc
+      skip exc.message
+    end
+
+    specify "remove a stream from the swimlane drawer", mutant: false do
+      session = Capybara::Session.new(:cuprite, app_builder(event_store))
+      event_store.publish(FooBarEvent.new(data: { foo: :bar }), stream_name: "foo")
+
+      session.visit("/streams/foo")
+      session.click_button("Add to swimlane")
+      expect(session).to have_button("Go to swimlane view")
+
+      session.find("button[aria-label='Remove foo']").click
+
+      expect(session).to have_no_button("Go to swimlane view")
+      expect(session).to have_no_button("Toggle swimlane drawer")
+    rescue Ferrum::BinaryNotFoundError => exc
+      skip exc.message
+    end
+
+    specify "treat stored swimlane stream names as text", mutant: false do
+      session = Capybara::Session.new(:cuprite, app_builder(event_store))
+      stream_name = %q[<img data-injection-marker src=x onerror="window.swimlaneInjected=true">]
+
+      session.visit("/")
+      session.execute_script(
+        "localStorage.setItem('ruby_event_store_browser.swimlane_streams', arguments[0])",
+        JSON.generate([stream_name]),
+      )
+      session.refresh
+
+      expect(session).to have_css("a", text: stream_name, exact_text: true, visible: :all)
+      expect(session).to have_no_css("[data-injection-marker]")
+      expect(session.evaluate_script("window.swimlaneInjected")).to be_nil
+    rescue Ferrum::BinaryNotFoundError => exc
+      skip exc.message
+    end
+
+    specify "stream names with plus signs keep their identity", :elm_parity, mutant: false do
+      session = Capybara::Session.new(:cuprite, app_builder(event_store))
+      event_store.publish(FooBarEvent.new(event_id: "plus-event"), stream_name: "a+b")
+      event_store.publish(FooBarEvent.new(event_id: "space-event"), stream_name: "a b")
+
+      session.visit("/streams/a+b")
+
+      expect(session).to have_content("Events in a+b")
+      expect(session).to have_content("plus-event")
+      expect(session).to have_no_content("space-event")
+    rescue Ferrum::BinaryNotFoundError => exc
+      skip exc.message
+    end
+
+    specify "event IDs are rendered as text", :elm_parity, mutant: false do
+      session = Capybara::Session.new(:cuprite, app_builder(event_store))
+      event_id = %q[<img data-event-id-injection src=x onerror="window.eventIdInjected=true">]
+      event_store.publish(FooBarEvent.new(event_id: event_id), stream_name: "xss")
+
+      session.visit("/streams/xss")
+
+      expect(session).to have_no_css("[data-event-id-injection]")
+      expect(session.evaluate_script("window.eventIdInjected")).to be_nil
+      expect(session).to have_content(event_id)
+    rescue Ferrum::BinaryNotFoundError => exc
+      skip exc.message
+    end
+
+    specify "empty streams explain that there are no events", :elm_parity, mutant: false do
+      session = Capybara::Session.new(:cuprite, app_builder(event_store))
+
+      session.visit("/streams/empty")
+
+      expect(session).to have_content("Events in empty")
+      expect(session).to have_content("No items")
+    rescue Ferrum::BinaryNotFoundError => exc
+      skip exc.message
+    end
+
+    specify "non-Mac platforms see the Ctrl K shortcut hint", :elm_parity, mutant: false do
+      session = Capybara::Session.new(:cuprite, app_builder(event_store))
+      session.driver.browser.evaluate_on_new_document(
+        'Object.defineProperty(navigator, "platform", { value: "Linux x86_64" })',
+      )
+
+      session.visit("/")
+
+      expect(session).to have_content("Ctrl K")
+    rescue Ferrum::BinaryNotFoundError => exc
+      skip exc.message
+    end
+
+    specify "swimlane drawer links stay within the browser mount point", mutant: false do
+      browser = app_builder(event_store)
+      mounted_app = Rack::Builder.new do
+        map("/res") { run browser }
+      end
+      session = Capybara::Session.new(:cuprite, mounted_app)
+      event_store.publish(FooBarEvent.new, stream_name: "foo")
+
+      session.visit("/res/streams/foo")
+      session.click_button("Add to swimlane")
+      session.click_link("foo")
+
+      expect(session).to have_current_path("/res/streams/foo")
+      expect(session).to have_content("Events in foo")
+    rescue Ferrum::BinaryNotFoundError => exc
+      skip exc.message
+    end
+
+    specify "swimlane can retry loading more events after a failed request", mutant: false do
+      session = Capybara::Session.new(:cuprite, app_builder(event_store))
+      events = Array.new(Browser::PAGE_SIZE + 1) { |index| FooBarEvent.new(metadata: { event_type: "Event#{index}" }) }
+      event_store.publish(events, stream_name: "paged")
+      failed = false
+      session.driver.browser.network.intercept(pattern: "*/swimlane/more*")
+      session.driver.browser.on(:request) do |request|
+        if failed
+          request.continue
+        else
+          failed = true
+          request.abort
+        end
+      end
+
+      session.visit("/swimlane?streams%5B%5D=paged")
+      expect(session).to have_content(events.last.event_type)
+      scroll_to = ->(position) { session.execute_script("window.scrollTo(0, #{position}); window.dispatchEvent(new Event('scroll'))") }
+      scroll_to.("document.body.scrollHeight")
+      session.driver.browser.network.wait_for_idle!
+      scroll_to.(0)
+      scroll_to.("document.body.scrollHeight")
+
+      expect(session).to have_content(events.first.event_type)
+    rescue Ferrum::BinaryNotFoundError => exc
+      skip exc.message
+    end
+
+    let(:event_store) { Client.new }
 
     def app_builder(event_store)
-      RubyEventStore::Browser::App.for(
-        event_store_locator: -> { event_store },
-        environment: :test
-      )
+      Browser::App.for(event_store_locator: -> { event_store })
+    end
+
+    def mk_logger
+      Class
+        .new do
+          attr_reader :messages
+
+          def initialize
+            @messages = []
+          end
+
+          def puts(message)
+            _, _, body = message.strip.split(" ", 3)
+            return unless body
+
+            body = JSON.parse(body)
+            @messages << body if body["method"] == "Log.entryAdded"
+          end
+        end
+        .new
     end
   end
 end

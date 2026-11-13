@@ -1,246 +1,255 @@
-require 'spec_helper'
-require 'action_controller/railtie'
+# frozen_string_literal: true
 
-$stdout = StringIO.new
-require 'sidekiq/testing'
-$stdout = STDOUT
-
-AsyncAdapterAvailable = Gem::Version.new(Rails::VERSION::STRING) >= Gem::Version.new("5.0.0")
-SimpleAdapter = AsyncAdapterAvailable ? :async : :inline
+require "spec_helper"
+require "action_controller/railtie"
 
 module RailsEventStore
-  class HandlerWithDefaults < ActiveJob::Base
-    cattr_accessor :event
-
-    def perform(event)
-      self.class.event = event
-    end
-  end
-
-  class HandlerWithAnotherEventStore < ActiveJob::Base
-    cattr_accessor :event
-
-    def perform(event)
-      self.class.event = event
-    end
-  end
-
-  class HandlerWithSpecifiedSerializer < ActiveJob::Base
-    cattr_accessor :event
-
-    def perform(event)
-      self.class.event = event
-    end
-  end
-
-  class MyLovelyAsyncHandler < ActiveJob::Base
-    cattr_accessor :event
-
-    def perform(payload)
-      self.class.event = Rails.configuration.event_store.deserialize(serializer: YAML, **payload)
-    end
-  end
-
-  class SidekiqHandlerWithHelper
-    include Sidekiq::Worker
-
-    cattr_accessor :event
-
-    def perform(event)
-      self.class.event = event
-    end
-  end
-
-  class HandlerWithHelper < ActiveJob::Base
-    cattr_accessor :event
-
-    def perform(event)
-      self.class.event = event
-    end
-  end
-
-  class MetadataHandler < ActiveJob::Base
-    cattr_accessor :metadata
-
-    def perform(_event)
-      self.metadata = Rails.configuration.event_store.metadata
-    end
-  end
-
-  class CustomSidekiqScheduler
-    def call(klass, record)
-      klass.perform_async(record.serialize(YAML).to_h)
-    end
-
-    def verify(subscriber)
-      Class === subscriber && subscriber.respond_to?(:perform_async)
-    end
-  end
-
-  RSpec.describe AsyncHandler do
-    let(:event_store) { RailsEventStore::Client.new }
-    let(:another_event_store) { RailsEventStore::Client.new }
-    let(:json_event_store) {
-      RailsEventStore::Client.new(
-        dispatcher: RubyEventStore::ImmediateAsyncDispatcher.new(
-          scheduler: ActiveJobScheduler.new(serializer: JSON)
-        ),
-      )
-    }
-    let(:application) { instance_double(Rails::Application) }
-    let(:config)      { FakeConfiguration.new }
-
+  ::RSpec.describe AsyncHandler do
     before do
-      allow(Rails).to       receive(:application).and_return(application)
-      allow(application).to receive(:config).and_return(config)
+      allow(Rails).to receive_message_chain(:application, :config).and_return(FakeConfiguration.new)
       Rails.configuration.event_store = event_store
-      ActiveJob::Base.queue_adapter   = SimpleAdapter
+
+      $queue = Queue.new
+    end
+
+    around { |example| ActiveJob::Base.with(queue_adapter: :async) { example.run } }
+
+    specify "ancestors" do
+      with_test_handler do |handler|
+        base_modules = handler.included_modules
+        handler.prepend AsyncHandler
+
+        expect(handler.included_modules - base_modules).to have_attributes(size: 2)
+      end
+
+      with_test_handler do |handler|
+        base_modules = handler.included_modules
+        handler.prepend AsyncHandler.with_defaults
+
+        expect(handler.included_modules - base_modules).to have_attributes(size: 1)
+      end
+
+      with_test_handler do |handler|
+        base_modules = handler.included_modules
+        handler.prepend AsyncHandler.with(event_store_locator: -> { another_event_store })
+
+        expect(handler.included_modules - base_modules).to have_attributes(size: 1)
+      end
+    end
+
+    specify "prepend hook does not modify AsyncHandler's own module chain" do
+      with_test_handler do |handler|
+        modules_before = RailsEventStore::AsyncHandler.included_modules.dup
+        handler.prepend AsyncHandler
+        expect(RailsEventStore::AsyncHandler.included_modules).to eq(modules_before)
+      end
+
+      with_test_handler do |handler|
+        modules_before = RailsEventStore::AsyncHandlerJobIdOnly.included_modules.dup
+        handler.prepend AsyncHandlerJobIdOnly
+        expect(RailsEventStore::AsyncHandlerJobIdOnly.included_modules).to eq(modules_before)
+      end
     end
 
     specify "with defaults" do
-      HandlerWithDefaults.prepend RailsEventStore::AsyncHandler
-      handler = HandlerWithDefaults.new
+      with_test_handler do |handler|
+        handler.prepend RailsEventStore::AsyncHandler
 
-      HandlerWithDefaults.event = nil
-      event_store.subscribe_to_all_events(HandlerWithDefaults)
-      event_store.publish(ev = RailsEventStore::Event.new)
-      wait_until{ HandlerWithDefaults.event }
-      expect(HandlerWithDefaults.event).to eq(ev)
+        event_store.subscribe_to_all_events(handler)
+        event_store.publish(event)
+
+        expect_to_receive(event)
+      end
     end
 
     specify "with specified event store" do
-      HandlerWithAnotherEventStore.prepend RailsEventStore::AsyncHandler.with(event_store: another_event_store)
-      handler = HandlerWithAnotherEventStore.new
+      with_test_handler do |handler|
+        handler.prepend RailsEventStore::AsyncHandler.with(event_store: another_event_store)
 
-      HandlerWithAnotherEventStore.event = nil
-      event_store.subscribe_to_all_events(HandlerWithAnotherEventStore)
-      event_store.publish(ev = RailsEventStore::Event.new)
-      wait_until{ HandlerWithAnotherEventStore.event }
-      expect(HandlerWithAnotherEventStore.event).to eq(ev)
+        event_store.subscribe_to_all_events(handler)
+        event_store.publish(event)
+
+        expect_to_receive(event)
+      end
+    end
+
+    specify "with specified event store locator" do
+      with_test_handler do |handler|
+        handler.prepend RailsEventStore::AsyncHandler.with(
+                          event_store: nil,
+                          event_store_locator: -> { another_event_store },
+                        )
+
+        another_event_store.subscribe_to_all_events(handler)
+        another_event_store.publish(event)
+
+        expect_to_receive(event)
+      end
     end
 
     specify "with specified serializer" do
-      HandlerWithSpecifiedSerializer.prepend RailsEventStore::AsyncHandler.with(event_store: json_event_store, serializer: JSON)
-      handler = HandlerWithSpecifiedSerializer.new
+      with_test_handler do |handler|
+        handler.prepend RailsEventStore::AsyncHandler.with(event_store: json_event_store, serializer: JSON)
 
-      HandlerWithSpecifiedSerializer.event = nil
-      json_event_store.subscribe_to_all_events(HandlerWithSpecifiedSerializer)
-      json_event_store.publish(ev = RailsEventStore::Event.new)
-      wait_until{ HandlerWithSpecifiedSerializer.event }
-      expect(HandlerWithSpecifiedSerializer.event).to eq(ev)
-    end
+        json_event_store.subscribe_to_all_events(handler)
+        json_event_store.publish(event)
 
-    specify 'default dispatcher can into ActiveJob' do
-      MyLovelyAsyncHandler.event = nil
-      event_store.subscribe_to_all_events(MyLovelyAsyncHandler)
-      event_store.publish(ev = RailsEventStore::Event.new)
-      wait_until{ MyLovelyAsyncHandler.event }
-      expect(MyLovelyAsyncHandler.event).to eq(ev)
-    end
-
-    specify 'ActiveJob with AsyncHandler prepended' do
-      HandlerWithHelper.prepend RailsEventStore::AsyncHandler
-      HandlerWithHelper.event = nil
-      event_store.subscribe_to_all_events(HandlerWithHelper)
-      event_store.publish(ev = RailsEventStore::Event.new)
-      wait_until{ HandlerWithHelper.event }
-      expect(HandlerWithHelper.event).to eq(ev)
-    end
-
-    specify 'ActiveJob with CorrelatedHandler prepended' do
-      HandlerA = Class.new(MetadataHandler)
-      HandlerA.prepend RailsEventStore::CorrelatedHandler
-      HandlerA.prepend RailsEventStore::AsyncHandler
-      HandlerA.metadata = nil
-      event_store.subscribe_to_all_events(HandlerA)
-      event_store.publish(ev = RailsEventStore::Event.new)
-      wait_until{ HandlerA.metadata }
-      expect(HandlerA.metadata).to eq({
-        correlation_id: ev.correlation_id,
-        causation_id:   ev.event_id,
-      })
-    end
-
-    specify 'ActiveJob with CorrelatedHandler prepended (2)' do
-      HandlerB = Class.new(MetadataHandler)
-      HandlerB.prepend RailsEventStore::CorrelatedHandler
-      HandlerB.prepend RailsEventStore::AsyncHandler
-      HandlerB.metadata = nil
-      event_store.subscribe_to_all_events(HandlerB)
-      event_store.publish(ev = RailsEventStore::Event.new(
-        metadata: {
-          correlation_id: "COID",
-          causation_id:   "CAID",
-        }
-      ))
-      wait_until{ HandlerB.metadata }
-      expect(HandlerB.metadata).to eq({
-        correlation_id: "COID",
-        causation_id:   ev.event_id,
-      })
-    end
-
-    specify 'ActiveJob with sidekiq adapter that requires serialization', mutant: false do
-      ActiveJob::Base.queue_adapter = :sidekiq
-      ev = RailsEventStore::Event.new
-      Sidekiq::Testing.fake! do
-        MyLovelyAsyncHandler.event = nil
-        event_store.subscribe_to_all_events(MyLovelyAsyncHandler)
-        event_store.publish(ev)
-        Thread.new{ Sidekiq::Worker.drain_all }.join
+        expect_to_receive(event)
       end
-      expect(MyLovelyAsyncHandler.event).to eq(ev)
     end
 
-    specify 'Sidekiq::Worker without ActiveJob that requires serialization' do
-      event_store = RailsEventStore::Client.new(
-        dispatcher: RubyEventStore::ImmediateAsyncDispatcher.new(scheduler: CustomSidekiqScheduler.new)
-      )
-      ev = RailsEventStore::Event.new
-      Sidekiq::Testing.fake! do
-        SidekiqHandlerWithHelper.prepend RailsEventStore::AsyncHandler
-        SidekiqHandlerWithHelper.event = nil
-        event_store.subscribe_to_all_events(SidekiqHandlerWithHelper)
-        event_store.publish(ev)
-        Thread.new{ Sidekiq::Worker.drain_all }.join
+    specify "ActiveJob with AsyncHandler prepended" do
+      with_test_handler do |handler|
+        handler.prepend RailsEventStore::AsyncHandler
+
+        event_store.subscribe_to_all_events(handler)
+        event_store.publish(event)
+
+        expect_to_receive(event)
       end
-      expect(SidekiqHandlerWithHelper.event).to eq(ev)
     end
 
-    specify 'CorrelatedHandler with event not yet scheduled with correlation_id' do
-      HandlerB = Class.new(MetadataHandler)
-      HandlerB.prepend RailsEventStore::CorrelatedHandler
-      HandlerB.prepend RailsEventStore::AsyncHandler
-      HandlerB.metadata = nil
-      event_store.append(ev = RailsEventStore::Event.new)
-      ev = event_store.read.event(ev.event_id)
-      HandlerB.perform_now(serialize_without_correlation_id(ev))
-      expect(HandlerB.metadata).to eq({
-        correlation_id: nil,
-        causation_id:   ev.event_id,
-      })
+    specify "ActiveJob with CorrelatedHandler prepended" do
+      with_correlated_handler do |handler|
+        handler.prepend RailsEventStore::CorrelatedHandler
+        handler.prepend RailsEventStore::AsyncHandler
+
+        event_store.subscribe_to_all_events(handler)
+        event_store.publish(event)
+
+        expect_to_receive({ correlation_id: event.correlation_id, causation_id: event.event_id })
+      end
+    end
+
+    specify "ActiveJob with CorrelatedHandler prepended (2)" do
+      with_correlated_handler do |handler|
+        handler.prepend RailsEventStore::CorrelatedHandler
+        handler.prepend RailsEventStore::AsyncHandler
+
+        event_store.subscribe_to_all_events(handler)
+        event_store.publish(
+          event = RubyEventStore::Event.new(metadata: { correlation_id: "COID", causation_id: "CAID" }),
+        )
+
+        expect_to_receive({ correlation_id: "COID", causation_id: event.event_id })
+      end
+    end
+
+    specify "CorrelatedHandler with event not yet scheduled with correlation_id" do
+      with_correlated_handler do |handler|
+        handler.prepend RailsEventStore::CorrelatedHandler
+        handler.prepend RailsEventStore::AsyncHandler
+
+        event_store.append(event)
+        read_event = event_store.read.event(event.event_id)
+        handler.perform_now(serialize_without_correlation_id(read_event))
+
+        expect_to_receive({ correlation_id: nil, causation_id: read_event.event_id })
+      end
+    end
+
+    specify "ActiveJob with AsyncHandlerJobIdOnly prepended" do
+      with_test_handler do |handler|
+        handler.prepend AsyncHandlerJobIdOnly
+
+        event_store.subscribe_to_all_events(handler)
+        event_store.publish(event)
+
+        expect_to_receive(event)
+      end
+    end
+
+    specify "ActiveJob with AsyncHandlerJobIdOnly prepended with event store locator" do
+      with_test_handler do |handler|
+        handler.prepend AsyncHandlerJobIdOnly.with(event_store: nil, event_store_locator: -> { event_store })
+
+        event_store.subscribe_to_all_events(handler)
+        event_store.publish(event)
+
+        expect_to_receive(event)
+      end
+    end
+
+    specify "ActiveJob with AsyncHandlerJobIdOnly prepended to host class" do
+      with_test_handler do |handler|
+        handler.prepend AsyncHandlerJobIdOnly
+
+        event_store.subscribe_to_all_events(handler)
+        event_store.publish(event)
+
+        expect_to_receive(event)
+      end
+    end
+
+    specify "running inline via .perform_now" do
+      with_test_handler do |handler|
+        handler.prepend RailsEventStore::AsyncHandler
+
+        handler.perform_now(event)
+
+        expect_to_receive(event)
+      end
+    end
+
+    specify "running inline via #perform_now" do
+      with_test_handler do |handler|
+        handler.prepend RailsEventStore::AsyncHandler
+
+        handler.new(event).perform_now
+
+        expect_to_receive(event)
+      end
     end
 
     private
 
-    def serialize_without_correlation_id(ev)
-      serialized =
-        event_store
-        .__send__(:mapper)
-        .event_to_record(ev)
-        .serialize(YAML)
-        .to_h
-      serialized[:metadata] = "--- {}\n"
-      serialized
+    let(:event) { RubyEventStore::Event.new }
+    let(:event_store) { mk_event_store }
+    let(:another_event_store) { mk_event_store }
+    let(:json_event_store) do
+      RailsEventStore::Client.new(
+        repository: RubyEventStore::InMemoryRepository.new,
+        message_broker:
+          RubyEventStore::Broker.new(
+            dispatcher:
+              RubyEventStore::ImmediateDispatcher.new(scheduler: ActiveJobScheduler.new(serializer: JSON)),
+          ),
+      )
     end
 
-    def wait_until(&block)
-      Timeout.timeout(1) do
-        loop do
-          break if block.call
-          sleep(0.001)
-        end
-      end
+    def with_correlated_handler
+      stub_const(
+        "TestHandler",
+        Class.new(ActiveJob::Base) do
+          def perform(event)
+            $queue.push(Rails.configuration.event_store.metadata)
+          end
+        end,
+      )
+      yield TestHandler
+    end
+
+    def with_test_handler
+      stub_const(
+        "TestHandler",
+        Class.new(ActiveJob::Base) do
+          def perform(event)
+            $queue.push(event)
+          end
+        end,
+      )
+      yield TestHandler
+    end
+
+    def mk_event_store = RailsEventStore::Client.new(repository: RubyEventStore::InMemoryRepository.new)
+
+    def expect_to_receive(something) = Timeout.timeout(2) { expect($queue.pop).to eq(something) }
+
+    def serialize_without_correlation_id(ev)
+      mapper = event_store.instance_variable_get(:@mapper)
+      serialized = mapper.events_to_records([ev]).first.serialize(RubyEventStore::Serializers::YAML).to_h
+      serialized[:metadata] = "--- {}\n"
+      serialized
     end
   end
 end

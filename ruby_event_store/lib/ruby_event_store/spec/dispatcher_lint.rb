@@ -1,4 +1,6 @@
-RSpec.shared_examples :dispatcher do |dispatcher|
+# frozen_string_literal: true
+
+RSpec.shared_examples "dispatcher" do |dispatcher|
   specify "#call" do
     expect(dispatcher).to respond_to(:call).with(3).arguments
   end
